@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from copy import deepcopy
 from fractions import Fraction
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
+
+SENSES = ["≤", "≥", "="]
+VAR_SIGNS = ["≥0", "≤0", "tự do"]
+
 
 def fr(x: Any) -> Fraction:
     if isinstance(x, Fraction):
@@ -18,12 +21,12 @@ def fr(x: Any) -> Fraction:
     return Fraction(s)
 
 
-def fmt_num(x: Fraction, mode: str = "fraction", prec: int = 8) -> str:
+def fmt_num(x: Fraction, mode: str = "Phân số", prec: int = 8) -> str:
     if not isinstance(x, Fraction):
         x = fr(x)
     if x == 0:
         return "0"
-    if mode == "decimal":
+    if mode == "Số thập phân":
         val = float(x)
         if abs(val - round(val)) < 10 ** -(prec - 2):
             s = f"{round(val):.0f}"
@@ -41,12 +44,12 @@ def clean_number_text(s: str) -> str:
 
 def sense_to_standard(s: str) -> str:
     s = s.strip()
-    if s in {"<=", ">=", "="}:
+    if s in {"≤", "≥", "="}:
         return s
     if s == "<":
-        return "<="
+        return "≤"
     if s == ">":
-        return ">="
+        return "≥"
     raise ValueError(f"Dấu ràng buộc không hợp lệ: {s}")
 
 
@@ -74,7 +77,6 @@ def term_str(coeff: Fraction, var: str, mode: str) -> str:
 
 
 def row_expr(label: str, const: Fraction, coeffs: Dict[int, Fraction], names: List[str], mode: str) -> str:
-    cells = []
     widths: Dict[int, int] = {}
     for j, name in enumerate(names):
         pieces = [term_str(coeffs.get(j, Fraction(0)), name, mode)]
