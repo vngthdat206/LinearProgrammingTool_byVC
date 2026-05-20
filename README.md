@@ -38,8 +38,8 @@ Phần mềm hiện có các chức năng nổi bật sau:
 - giải bài toán bằng **thuật toán đơn hình**;
 - xử lý các tình huống đặc biệt như:
   - bài toán **không khả thi**;
-  - bài toán **không bị chặn**;
-  - bài toán **có chu trình**;
+  - bài toán **không giới nội**;
+  - bài toán **có xoay vòng**;
   - bài toán **có nhiều nghiệm tối ưu**;
 - cho phép dùng dữ liệu **phân số** hoặc **số thập phân**;
 - xuất lời giải ra **file .txt**;
@@ -52,7 +52,7 @@ Chương trình sử dụng:
 - **Phương pháp 2 pha** khi bài toán cần xử lý tình huống khởi tạo cơ sở không thuận lợi;
 - cơ chế lựa chọn phần tử xoay theo:
   - **Dantzig**;
-  - **Bland** để giảm nguy cơ lặp chu trình.
+  - **Bland** để giảm nguy cơ lặp xoay vòng.
 
 ---
 
@@ -90,10 +90,10 @@ Phần mềm được thiết kế để xử lý nhiều tình huống khác nh
 - **Bài toán không khả thi**  
   Nếu hệ ràng buộc vô nghiệm, phần mềm có thể nhận diện.
 
-- **Bài toán không bị chặn**  
+- **Bài toán không giới nội**  
   Nếu hàm mục tiêu có thể tăng/giảm mãi, phần mềm có thể phát hiện.
 
-- **Bài toán có chu trình**  
+- **Bài toán có xoay vòng**  
   Chương trình có cơ chế chống lặp bằng Bland để tăng độ an toàn.
 
 - **Bài toán có nhiều nghiệm tối ưu**  
@@ -219,8 +219,8 @@ Kết quả sẽ xuất hiện trong khung **Lời giải**, bao gồm:
 
 Nếu bài toán thuộc loại đặc biệt, chương trình cũng sẽ thông báo tương ứng:
 - không khả thi;
-- không bị chặn;
-- chu trình;
+- không giới nội;
+- xoay vòng;
 - nhiều nghiệm tối ưu.
 
 ---
