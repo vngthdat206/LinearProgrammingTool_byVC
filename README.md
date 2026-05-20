@@ -37,10 +37,10 @@ Phần mềm hiện có các chức năng nổi bật sau:
   - **biến tự do**
 - giải bài toán bằng **thuật toán đơn hình**;
 - xử lý các tình huống đặc biệt như:
-  - bài toán **không khả thi**;
+  - bài toán **không có nghiệm tối ưu**;
   - bài toán **không giới nội**;
   - bài toán **có xoay vòng**;
-  - bài toán **có nhiều nghiệm tối ưu**;
+  - bài toán **có vô số nghiệm tối ưu**;
 - cho phép dùng dữ liệu **phân số** hoặc **số thập phân**;
 - xuất lời giải ra **file .txt**;
 - trực quan hóa bài toán 2 biến trên mặt phẳng Oxy.
@@ -87,7 +87,7 @@ Phần mềm được thiết kế để xử lý nhiều tình huống khác nh
 - **Bài toán cần 2 pha**  
   Khi cần, chương trình tự xử lý bằng pha 1 và pha 2.
 
-- **Bài toán không khả thi**  
+- **Bài toán không có nghiệm tối ưu**  
   Nếu hệ ràng buộc vô nghiệm, phần mềm có thể nhận diện.
 
 - **Bài toán không giới nội**  
@@ -96,7 +96,7 @@ Phần mềm được thiết kế để xử lý nhiều tình huống khác nh
 - **Bài toán có xoay vòng**  
   Chương trình có cơ chế chống lặp bằng Bland để tăng độ an toàn.
 
-- **Bài toán có nhiều nghiệm tối ưu**  
+- **Bài toán có vô số nghiệm tối ưu**  
   Phần mềm có thể nhận diện trường hợp có nhiều phương án tối ưu.
 
 ### 2. Những chức năng phần mềm mang lại cho người dùng
@@ -218,7 +218,7 @@ Kết quả sẽ xuất hiện trong khung **Lời giải**, bao gồm:
 - kết luận cuối cùng.
 
 Nếu bài toán thuộc loại đặc biệt, chương trình cũng sẽ thông báo tương ứng:
-- không khả thi;
+- không có nghiệm tối ưu;
 - không giới nội;
 - xoay vòng;
 - nhiều nghiệm tối ưu.
