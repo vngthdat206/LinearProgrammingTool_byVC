@@ -10,10 +10,10 @@ Bộ mã đã được tách thành nhiều file nhỏ để dễ kiểm tra, s�
 
 | Họ và tên | MSSV | Lớp |
 |---|---:|---|
-| Nguyễn Đăng Nhân | 242800xx | 24KDL1 |
-| Trần Nguyên Hưng | 242800xx | 24KDL1 |
-| Trương Đình Hưng | 242800xx | 24KDL1 |
-| Lê Tự Phong | 242800xx | 24KDL1 |
+| Nguyễn Đăng Nhân | 24280038 | 24KDL1 |
+| Trần Nguyên Hưng | 24280048 | 24KDL1 |
+| Trương Đình Hưng | 24280068 | 24KDL1 |
+| Lê Tự Phong | 24280039 | 24KDL1 |
 | Vương Thành Đạt | 24280058 | 24KDL1 |
 
 ### 2. Mục đích phần mềm
