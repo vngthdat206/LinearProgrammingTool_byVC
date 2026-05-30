@@ -306,7 +306,34 @@ Người dùng có thể:
 
 ---
 
-## Cách chạy nhanh
+## Cách chạy 
+
+### Bước 1: Clone dự án
+
+```bash
+git clone https://github.com/vngthdat206/LinearProgrammingTool_byVC.git
+cd LinearProgrammingTool_byVC
+```
+
+### Bước 2: Tạo môi trường ảo
+
+```bash
+py -m venv .venv
+```
+
+### Bước 3: Kích hoạt môi trường ảo
+
+```bash
+.venv\Scripts\activate
+```
+
+### Bước 4: Cài đặt thư viện
+
+```bash
+py -m pip install -r requirements.txt
+```
+
+### Bước 5: Chạy chương trình
 
 ```bash
 python main.py
