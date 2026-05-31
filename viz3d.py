@@ -1,7 +1,15 @@
 from __future__ import annotations
+
 import math
 import itertools
+from fractions import Fraction
+from typing import Any, Dict, List, Optional, Tuple
 
+import tkinter as tk
+from tkinter import messagebox, ttk
+
+from utils import fmt_num, fr, sense_to_standard
+from models import ProblemData
 
 def _halfspace_feasible(x: float, y: float, z: float,
                         planes: List[Tuple[float, float, float, float, str]],
