@@ -337,5 +337,5 @@ py -m pip install -r requirements.txt
 ### Bước 5: Chạy chương trình
 
 ```bash
-python main.py
+py main.py
 ```
