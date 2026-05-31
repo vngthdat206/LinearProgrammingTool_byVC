@@ -311,7 +311,7 @@ Người dùng có thể:
 ### Bước 1: Clone dự án
 
 ```bash
-git clone https://github.com/vngthdat206/LinearProgrammingTool_byVC.git
+git clone https://github.com/vngthdat206/LinearProgrammingTool_byVC
 cd LinearProgrammingTool_byVC
 ```
 
