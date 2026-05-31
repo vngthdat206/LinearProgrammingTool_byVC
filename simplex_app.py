@@ -423,13 +423,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             self.constraint_rhs[i].insert(0,r)
 
     def _fill_demo_3var(self):
-        """Demo 3-variable LP for 3D visualization:
-           max  Z = 5x1 + 4x2 + 3x3
-           s.t. 6x1 + 4x2 + 2x3 <= 240
-                3x1 + 5x2 + 5x3 <= 270
-                5x1 + 3x2 + 6x3 <= 420
-                x1,x2,x3 >= 0
-        """
         self.n_vars.set(3); self.n_constraints.set(3)
         self.objective_sense.set("max"); self._build_inputs()
         for i,v in enumerate(["5","4","3"]):
@@ -496,7 +489,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                          icon="🔒", label="Trực quan hóa (>3 biến)")
 
     def _update_viz_btn_state(self) -> None:
-        """Called every time n_vars changes. Updates label, colour, enabled state."""
         if self.viz_btn is None:
             return
         n = int(self.n_vars.get())
@@ -522,7 +514,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             self.viz_btn._hover_bg = s["hover"]
 
     def _viz_dispatch(self) -> None:
-        """Route to 2D or 3D visualizer based on current n_vars."""
         n = int(self.n_vars.get())
         if n == 2:
             self.visualize_two_variable_problem()
