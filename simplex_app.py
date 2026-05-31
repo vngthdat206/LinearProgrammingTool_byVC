@@ -1,4 +1,5 @@
 from __future__ import annotations
+from viz3d import Viz3DMixin
 
 import math
 import re
