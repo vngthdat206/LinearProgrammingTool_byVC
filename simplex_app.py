@@ -40,6 +40,8 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         self.last_problem: Optional[ProblemData] = None
         self.export_btn: Optional[tk.Button] = None
         self.viz_btn: Optional[tk.Button] = None
+        self.viz3d_btn: Optional[tk.Button] = None
+        
         self._setup_style()
         self._build_ui()
         self._build_inputs()
