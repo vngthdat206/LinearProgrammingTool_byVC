@@ -330,6 +330,7 @@ py -m venv .venv
 ### Bước 4: Cài đặt thư viện
 
 ```bash
+py -m pip install --upgrade pip
 py -m pip install -r requirements.txt
 ```
 
