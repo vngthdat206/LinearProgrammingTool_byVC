@@ -11,7 +11,7 @@ from models import ProblemData, SolveReport
 from simplex_engine import SimplexEngine
 from utils import VAR_SIGNS, SENSES, clean_number_text, fmt_num, fr, parse_cell, row_expr, sense_to_standard, term_str
 
-class SimplexApp(tk.Tk):
+class SimplexApp(Viz3DMixin, tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Ứng dụng Quy hoạch tuyến tính — Đơn hình")
