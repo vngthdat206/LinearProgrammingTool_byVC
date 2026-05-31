@@ -25,6 +25,7 @@ def _halfspace_feasible(x: float, y: float, z: float,
             return False
     return True
 
+
 def _intersect_3planes(p1, p2, p3):
     (a1, b1, c1, d1, _) = p1
     (a2, b2, c2, d2, _) = p2
@@ -44,3 +45,29 @@ def _intersect_3planes(p1, p2, p3):
           - b1 * (a2 * d3 - a3 * d2)
           + d1 * (a2 * b3 - a3 * b2)) / det)
     return x, y, z
+
+
+def _convex_hull_3d_simple(pts: List[Tuple[float, float, float]]):
+    if len(pts) < 3:
+        return []
+    try:
+        from scipy.spatial import ConvexHull
+        import numpy as np
+        arr = np.array(pts)
+        hull = ConvexHull(arr)
+        return [tuple(s) for s in hull.simplices]
+    except Exception:
+        pass
+
+    cx = sum(p[0] for p in pts) / len(pts)
+    cy = sum(p[1] for p in pts) / len(pts)
+    cz = sum(p[2] for p in pts) / len(pts)
+    center = (cx, cy, cz)
+    n = len(pts)
+    faces = []
+    for i in range(n):
+        j = (i + 1) % n
+        faces.append((i, j, n))          
+    pts_with_center = pts + [center]
+    return faces, pts_with_center
+
