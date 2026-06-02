@@ -111,23 +111,23 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         except Exception:
             pass
 
-        # Nền mặc định cho tất cả TFrame: màu be nhạt "Muted Earth"
+        # Nền mặc định cho tất cả TFrame: trắng tuyết "Nordic Frost"
         style.configure("TFrame", background=ME["bg"])
 
-        # Header: nền xanh than đậm, chữ trắng ngà nổi bật
+        # Header: nền xanh đêm Bắc Âu, chữ trắng nổi bật
         style.configure("Header.TFrame", background=ME["header_bg"])
         style.configure("Header.TLabel", background=ME["header_bg"],
                         foreground=ME["header_fg"], font=("Segoe UI", 16, "bold"))
 
-        # Dòng phụ dưới tiêu đề: chữ sage nhạt trên nền than
+        # Dòng phụ dưới tiêu đề: chữ xanh băng nhạt trên nền đêm
         style.configure("SubHeader.TLabel", background=ME["header_bg"],
                         foreground=ME["subheader_fg"], font=("Segoe UI", 10))
 
-        # Nhãn nội dung thông thường: nâu đen trên nền be
+        # Nhãn nội dung thông thường: xanh đen trên nền trắng tuyết
         style.configure("TLabel", background=ME["bg"],
                         foreground=ME["fg"], font=("Segoe UI", 10))
 
-        # Khung nhóm (LabelFrame): nền be, viền 1px
+        # Khung nhóm (LabelFrame): nền trắng tuyết, viền 1px
         style.configure("TLabelframe", background=ME["bg"], borderwidth=1)
         style.configure("TLabelframe.Label", background=ME["bg"],
                         foreground=ME["frame_fg"], font=("Segoe UI", 10, "bold"))
@@ -135,7 +135,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         # Nút chung: font đậm, padding thoáng
         style.configure("TButton", font=("Segoe UI", 10, "bold"), padding=8)
 
-        # Nút hành động chính (Accent): xanh rừng "Muted Earth"
+        # Nút hành động chính (Accent): xanh dương "Nordic Frost"
         style.configure("Accent.TButton", background=ME["accent"], foreground=ME["header_fg"])
         style.map(
             "Accent.TButton",
@@ -146,7 +146,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                         ("!disabled", ME["header_fg"])],
         )
 
-        # Nút cảnh báo (Warn): cam đất, hover sang nâu đỏ đậm
+        # Nút cảnh báo (Warn): hổ phách vàng, hover sang hổ phách đậm
         style.configure("Warn.TButton", background=ME["warn"], foreground=ME["header_fg"])
         style.map("Warn.TButton", background=[("active", ME["warn_hover"])])
 
@@ -163,7 +163,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
 
-        # Thanh tiêu đề trên cùng: Tên ứng dụng + Hướng dẫn tóm tắt
+        # Thanh tiêu đề trên cùng: tên ứng dụng (h1) + hướng dẫn tóm tắt (h2)
         header = ttk.Frame(self, style="Header.TFrame", padding=(16, 12))
         header.grid(row=0, column=0, sticky="nsew")
         header.columnconfigure(0, weight=1)
@@ -188,7 +188,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         # Cột trái: row 0 → Thiết lập (config), row 1 → Mẫu demo, row 3 → Nhập bài toán
         left = ttk.Frame(main)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
-        left.rowconfigure(3, weight=1)
+        left.rowconfigure(3, weight=1)  # row nhập liệu co giãn theo chiều dọc
 
         # Nhóm "Thiết lập": kiểu dữ liệu, số biến, số ràng buộc, nút tạo lại
         config = ttk.Labelframe(left, text="Thiết lập", padding=12)
@@ -218,7 +218,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                    command=self._build_inputs).grid(
             row=3, column=0, columnspan=2, sticky="ew", pady=(10, 0))
 
-        # Hai nút đặt sát nhau trong một frame phụ; mỗi nút chiếm một nửa chiều rộng
+        # Hàng nút xuất file + trực quan hóa
         action_row = ttk.Frame(config)
         action_row.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(8, 0))
         action_row.columnconfigure(0, weight=1)
@@ -288,7 +288,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         input_box.grid(row=3, column=0, sticky="nsew")
         input_box.columnconfigure(0, weight=1)
         input_box.rowconfigure(0, weight=1)
-        self.input_canvas = tk.Canvas(input_box, background="#f4f1eb",
+        self.input_canvas = tk.Canvas(input_box, background="#FAFBFC",
                                       highlightthickness=0, width=580, height=650)
         self.input_canvas.grid(row=0, column=0, sticky="nsew")
         vsb = ttk.Scrollbar(input_box, orient="vertical",
@@ -315,21 +315,31 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
         self.output = scrolledtext.ScrolledText(
             right, wrap="none", font=("Consolas", 12),
-            bg="#fbfaf6", fg="#1e1b1b",
-            insertbackground="#1e1b1b", relief="flat", padx=14, pady=10,
+            bg="#FFFFFF", fg="#1E293B",
+            insertbackground="#1E293B", relief="flat", padx=14, pady=10,
         )
         self.output.grid(row=0, column=0, sticky="nsew")
+        # Định nghĩa các "tag" màu sắc dùng trong vùng lời giải:
+        #   h1        → tên bài toán (to, đậm, màu nâu đỏ)
+        #   h2        → tiêu đề pha / bước (đậm, màu xanh than)
+        #   note      → ghi chú, kết quả từng bước (xanh indigo đất)
+        #   warn      → cảnh báo suy biến, vô nghiệm (vàng đất)
+        #   mono      → dạng bảng từ vựng (Consolas, không trang trí thêm)
+        #   pivotcol  → highlight cột biến vào (nền vàng nhạt)
+        #   pivotrow  → highlight hàng biến ra (nền xanh lam nhạt)
+        #   pivotcell → highlight ô phần tử xoay = giao pivotcol ∩ pivotrow (nền đỏ hồng nhạt)
+        #   conclusion→ highlight khối kết luận cuối (nền cam kem)
         self.output.tag_configure("h1", font=("Segoe UI", 15, "bold"),
-                                   foreground="#b45309", spacing1=8, spacing3=10)
+                                   foreground="#185FA5", spacing1=8, spacing3=10)
         self.output.tag_configure("h2", font=("Segoe UI", 12, "bold"),
-                                   foreground="#1f2937", spacing1=8, spacing3=4)
-        self.output.tag_configure("note", foreground="#0f4c81")
-        self.output.tag_configure("warn", foreground="#a16207")
+                                   foreground="#1E3A5F", spacing1=8, spacing3=4)
+        self.output.tag_configure("note", foreground="#0F766E")
+        self.output.tag_configure("warn", foreground="#B45309")
         self.output.tag_configure("mono", font=("Consolas", 12))
-        self.output.tag_configure("pivotcol", background="#fde68a")
-        self.output.tag_configure("pivotrow", background="#dbeafe")
-        self.output.tag_configure("pivotcell", background="#fca5a5")
-        self.output.tag_configure("conclusion", background="#fff7ed")
+        self.output.tag_configure("pivotcol", background="#FEF9C3")
+        self.output.tag_configure("pivotrow", background="#E8F4FD")
+        self.output.tag_configure("pivotcell", background="#BFDBFE")
+        self.output.tag_configure("conclusion", background="#F0FDF4")
 
         self.status_var = tk.StringVar(value="Sẵn sàng.")
         ttk.Label(self, textvariable=self.status_var,
@@ -338,12 +348,17 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         self.bind("<Configure>", self._on_resize)
 
     def _on_resize(self, event=None):
+        # Khi cửa sổ thay đổi kích thước, đảm bảo vùng lời giải không tự xuống dòng
+        # (wrap="none" giữ mỗi dòng bảng từ vựng thẳng hàng, cuộn ngang nếu cần)
         try:
             self.output.configure(wrap="none")
         except Exception:
             pass
 
     def _build_inputs(self):
+        # Xây dựng lại toàn bộ bảng nhập liệu mỗi khi số biến / số ràng buộc thay đổi.
+        # Bước 1: xóa sạch tất cả widget cũ bên trong input_inner
+        # Bước 2: xóa các danh sách tham chiếu (entry, combobox) để tránh trỏ đến widget đã hủy
         for child in self.input_inner.winfo_children():
             child.destroy()
         self.obj_entries.clear()
@@ -352,9 +367,10 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         self.constraint_senses.clear()
         self.constraint_rhs.clear()
 
-        n = int(self.n_vars.get())
-        m = int(self.n_constraints.get())
+        n = int(self.n_vars.get())        # số biến quyết định x1..xn
+        m = int(self.n_constraints.get()) # số ràng buộc
 
+        # Hàm mục tiêu: combobox chọn max/min, hàng nhập hệ số cj, hàng chọn dấu xj
         obj_frame = ttk.Labelframe(self.input_inner,
                                     text="Hàm mục tiêu", padding=10)
         obj_frame.grid(row=0, column=0, sticky="ew", pady=(0, 10))
@@ -368,6 +384,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
         ttk.Label(obj_frame, text="Hệ số:").grid(
             row=1, column=0, sticky="w", pady=(8, 2))
+        # Tạo n ô entry cho hệ số c1..cn của hàm mục tiêu; sắp xếp ngang theo cột
         coef_row = ttk.Frame(obj_frame)
         coef_row.grid(row=1, column=1, sticky="ew", pady=(8, 2))
         for j in range(n):
@@ -391,6 +408,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             cb.grid(row=1, column=0, sticky="ew")
             self.var_signs.append(cb)
 
+        # Các ràng buộc: n ô hệ số, 1 combobox dấu (≤/≥/=), 1 ô vế phải
         cons_frame = ttk.Labelframe(self.input_inner,
                                      text="Ràng buộc", padding=10)
         cons_frame.grid(row=1, column=0, sticky="nsew")
@@ -435,7 +453,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         ttk.Label(
             self.input_inner,
             text="Bấm Tab để chuyển ô. Ctrl+Alt+R để giải.",
-            foreground="#92400e",
+            foreground="#185FA5",
         ).grid(row=2, column=0, sticky="w", pady=(10, 0))
 
         self.input_inner.update_idletasks()
@@ -529,6 +547,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             self.constraint_rhs[i].insert(0,r)
 
     def _collect_problem(self) -> ProblemData:
+        # Thu thập toàn bộ dữ liệu từ giao diện nhập liệu và đóng gói thành ProblemData.
         n = int(self.n_vars.get())
         m = int(self.n_constraints.get())
         obj_coeffs = [parse_cell(e.get(), self.data_mode.get())
@@ -550,23 +569,28 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
 
     def _set_solution_available(self, available: bool) -> None:
+        # Bật/tắt nút "Xuất file .txt" tùy theo có kết quả giải hay chưa.
         if self.export_btn is None:
             return
         if available:
-            self.export_btn._base_bg = "#16a34a"
-            self.export_btn._hover_bg = "#15803d"
+            self.export_btn._base_bg = "#3B82F6"
+            self.export_btn._hover_bg = "#2563EB"
             self.export_btn.config(state=tk.NORMAL,
-                                   bg="#16a34a",
-                                   activebackground="#15803d",
+                                   bg="#3B82F6",
+                                   activebackground="#2563EB",
                                    cursor="hand2")
         else:
-            self.export_btn._base_bg = "#9ca3af"
-            self.export_btn._hover_bg = "#6b7280"
+            self.export_btn._base_bg = "#CBD5E1"
+            self.export_btn._hover_bg = "#94A3B8"
             self.export_btn.config(state=tk.DISABLED,
-                                   bg="#9ca3af",
-                                   activebackground="#6b7280",
+                                   bg="#CBD5E1",
+                                   activebackground="#94A3B8",
                                    cursor="arrow")
 
+    # Bảng màu và nhãn nút trực quan hóa theo số biến:
+    #   2 biến → nút xanh sage "Nordic Frost" "Trực quan hóa (2D)"
+    #   3 biến → nút tím indigo "Trực quan hóa (3D)"
+    #   >3 biến→ nút xám bị vô hiệu hóa (không hỗ trợ)
     _VIZ_STYLES = {
         2: dict(bg="#6EBF8B", hover="#4DAA72", icon="📊",
                 label="Trực quan hóa (2D)"),
@@ -577,10 +601,12 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                          icon="🔒", label="Trực quan hóa (>3 biến)")
 
     def _update_viz_btn_state(self) -> None:
+        # Cập nhật màu sắc, nhãn và trạng thái nút viz_btn theo số biến hiện tại.
         if self.viz_btn is None:
             return
         n = int(self.n_vars.get())
         if n > 3:
+            # Hơn 3 biến: không hỗ trợ trực quan, khóa nút lại
             s = self._VIZ_DISABLED
             self.viz_btn.config(
                 text=f"{s['icon']}  {s['label']}",
@@ -591,6 +617,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             self.viz_btn._base_bg = s["bg"]
             self.viz_btn._hover_bg = s["hover"]
         else:
+            # 2 hoặc 3 biến: kích hoạt nút với màu phù hợp
             s = self._VIZ_STYLES.get(n, self._VIZ_STYLES[2])
             self.viz_btn.config(
                 text=f"{s['icon']}  {s['label']}",
@@ -602,6 +629,10 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             self.viz_btn._hover_bg = s["hover"]
 
     def _viz_dispatch(self) -> None:
+        # Điều phối yêu cầu trực quan hóa theo số biến:
+        #   2 biến → vẽ đồ thị 2D miền chấp nhận + đường đồng mức
+        #   3 biến → vẽ mô hình 3D (Viz3DMixin)
+        #   khác  → thông báo không hỗ trợ
         n = int(self.n_vars.get())
         if n == 2:
             self.visualize_two_variable_problem()
@@ -615,6 +646,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             )
 
     def _on_button_enter(self, event, darker_color: Optional[str] = None) -> None:
+        # Xử lý sự kiện hover vào nút: đổi sang màu hover (tối hơn).
         btn = event.widget
         if str(btn.cget("state")) == "disabled":
             return
@@ -625,6 +657,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         btn.config(bg=darker_color)
 
     def _on_button_leave(self, event, original_color: Optional[str] = None) -> None:
+        # Xử lý sự kiện hover rời nút: khôi phục màu nền gốc.
         btn = event.widget
         if str(btn.cget("state")) == "disabled":
             return
@@ -634,6 +667,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
 
     def export_solution_txt(self) -> None:
+        # Xuất nội dung vùng lời giải ra file .txt.
         content = self.output.get("1.0", "end-1c").strip()
         if not content:
             messagebox.showinfo("Xuất file .txt", "Chưa có lời giải để xuất.")
@@ -655,6 +689,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
 
     def _boundary_text(self, coeffs, sense: str, rhs: Fraction) -> str:
+        # Tạo chuỗi biểu diễn một ràng buộc dạng "a·x₁ + b·x₂ sense rhs" để hiển thị chú thích trên biểu đồ 2D.
         a, b = coeffs
         parts = []
         mode = self.data_mode.get()
@@ -667,6 +702,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return f"{lhs} {sense} {fmt_num(rhs, mode)}"
 
     def _build_halfplanes(self, prob: ProblemData):
+        # Chuyển danh sách ràng buộc + điều kiện dấu biến thành danh sách nửa mặt phẳng (a, b, rhs, sense, nhãn). Dùng để vẽ vùng chấp nhận được trên đồ thị 2D. Điều kiện dấu biến (≥0 / ≤0 / tự do) được thêm vào như các ràng buộc trục tọa độ.
         halfplanes = []
         for i, cons in enumerate(prob.constraints, start=1):
             a = fr(cons["coeffs"][0])
@@ -686,6 +722,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return halfplanes
 
     def _is_feasible_point(self, x, y, halfplanes, tol=1e-8):
+        # Kiểm tra điểm (x, y) có thỏa tất cả nửa mặt phẳng không.
         for a, b, c, sense, _ in halfplanes:
             lhs = float(a)*x + float(b)*y
             cc = float(c)
@@ -695,6 +732,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return True
 
     def _compute_feasible_vertices(self, halfplanes):
+        # Tính tất cả đỉnh của miền chấp nhận được bằng cách giao từng cặp đường thẳng, sau đó lọc lại chỉ giữ các giao điểm thỏa toàn bộ ràng buộc còn lại.
         import math
         lines = [(a, b, c, lbl) for a, b, c, _, lbl in halfplanes]
         vertices = []
@@ -712,6 +750,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return vertices
 
     def _deduplicate_points(self, points, eps=1e-7):
+        # Loại bỏ các điểm trùng lặp (trong phạm vi eps) để tránh vẽ đỉnh hai lần.
         unique = []
         for p in points:
             if not any(abs(p[0]-q[0]) <= eps and abs(p[1]-q[1]) <= eps
@@ -720,6 +759,8 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return unique
 
     def _compute_plot_bounds(self, vertices, halfplanes):
+        # Tính khung nhìn (xmin, xmax, ymin, ymax) để đồ thị bao phủ toàn bộ miền khả thi.
+        # Luôn đảm bảo gốc tọa độ (0, 0) nằm trong khung nhìn.
         if vertices:
             xs = [p[0] for p in vertices]; ys = [p[1] for p in vertices]
             sx = max(xs)-min(xs); sy = max(ys)-min(ys)
@@ -735,6 +776,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return xmin-0.22*xr, xmax+0.22*xr, ymin-0.22*yr, ymax+0.22*yr
 
     def _create_meshgrid(self, xmin, xmax, ymin, ymax):
+        # Tạo lưới 220×220 điểm bao phủ khung nhìn để tô màu miền chấp nhận bằng contourf.
         import numpy as np
         x = np.linspace(xmin, xmax, 220)
         y = np.linspace(ymin, ymax, 220)
@@ -742,6 +784,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return x, y, X, Y
 
     def _compute_feasible_region(self, halfplanes, X, Y):
+        # Tính mảng boolean mask: True tại điểm (X[i,j], Y[i,j]) nếu thuộc miền khả thi.
         import numpy as np
         mask = np.ones_like(X, dtype=bool)
         for a, b, c, sense, _ in halfplanes:
@@ -752,11 +795,13 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return mask
 
     def _find_optimal_vertex(self, vertex_values, maximize):
+        # Tìm đỉnh tối ưu trong danh sách (x, y, z): max z nếu maximize, min z nếu minimize.
         if not vertex_values: return None
         return max(vertex_values, key=lambda t: t[2]) if maximize \
                else min(vertex_values, key=lambda t: t[2])
 
     def _request_canvas_redraw(self, canvas, delay_ms=14):
+        # Đặt lịch vẽ lại canvas sau delay_ms mili-giây bằng widget.after().
         widget = canvas.get_tk_widget()
         if getattr(widget, "_redraw_job", None) is not None:
             return
@@ -767,6 +812,8 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         widget._redraw_job = widget.after(delay_ms, _do)
 
     def _line_box_intersections(self, a, b, c, xmin, xmax, ymin, ymax):
+        # Tính giao điểm của đường thẳng a·x + b·y = c với các cạnh của hộp giới hạn [xmin, xmax] × [ymin, ymax]. Trả về danh sách điểm nằm trong hộp.
+        # Dùng để xác định đoạn thẳng cần vẽ cho từng ràng buộc / đường đồng mức.
         eps = 1e-12; pts = []
         def add(pt):
             x, y = pt
@@ -784,6 +831,12 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return pts
 
     def visualize_two_variable_problem(self) -> None:
+        # Mở cửa sổ trực quan hóa đầy đủ cho bài toán 2 biến:
+        #   1. Thu thập và xác thực dữ liệu nhập
+        #   2. Khởi tạo matplotlib (backend TkAgg)
+        #   3. Tính miền khả thi, đỉnh, điểm tối ưu
+        #   4. Vẽ: miền khả thi (fill) → ràng buộc (đường) → đồng mức (dash) → đỉnh → sao tối ưu
+        #   5. Thêm panel thông tin, điều khiển zoom, tương tác kéo-thả / cuộn chuột
         try:
             prob = self._collect_problem()
         except Exception as exc:
@@ -811,7 +864,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         optimal_point = self._find_optimal_vertex(vertex_values, maximize)
 
         win = self._create_visualization_window()
-        pf = tk.Frame(win, bg="#f8fafc", bd=0, highlightthickness=0)
+        pf = tk.Frame(win, bg="#F0F4F8", bd=0, highlightthickness=0)
         pf.grid(row=0, column=0, sticky="nsew")
         pf.rowconfigure(0, weight=1); pf.columnconfigure(0, weight=1)
 
@@ -837,6 +890,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         win.focus_force()
 
     def _create_visualization_window(self):
+        # Tạo cửa sổ Toplevel riêng biệt cho trực quan hóa (fullscreen nếu có thể).
         top = tk.Toplevel(self)
         top.title("Trực quan hóa bài toán 2 biến")
         top.geometry("1540x980"); top.minsize(1100, 760)
@@ -845,29 +899,33 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         except Exception:
             try: top.attributes("-zoomed", True)
             except Exception: pass
-        top.configure(bg="#f8fafc")
+        top.configure(bg="#F0F4F8")
         top.columnconfigure(0, weight=1); top.rowconfigure(0, weight=1)
         top.protocol("WM_DELETE_WINDOW", top.destroy)
         return top
 
     def _create_figure(self):
+        # Khởi tạo Figure và Axes matplotlib.
         from matplotlib.figure import Figure
         fig = Figure(figsize=(16, 9.6), dpi=105)
-        fig.patch.set_facecolor("#f8fafc")
+        fig.patch.set_facecolor("#F0F4F8")
         fig.subplots_adjust(left=0.045, right=0.992, top=0.94, bottom=0.085)
         ax = fig.add_subplot(111)
-        ax.set_facecolor("#ffffff")
+        ax.set_facecolor("#FAFBFC")
         ax.grid(True, linestyle="--", linewidth=0.7, alpha=0.16)
         ax.spines["top"].set_visible(False); ax.spines["right"].set_visible(False)
-        ax.spines["left"].set_color("#cbd5e1"); ax.spines["bottom"].set_color("#cbd5e1")
+        ax.spines["left"].set_color("#B5D4F4"); ax.spines["bottom"].set_color("#B5D4F4")
         return fig, ax
 
     def _plot_feasible_region(self, ax, X, Y, mask):
+        # Tô màu xanh lam nhạt (alpha 0.16) vùng chấp nhận được bằng contourf.
         ax.contourf(X, Y, mask.astype(float), levels=[0.5, 1.5],
-                    alpha=0.16, colors=["#93c5fd"], zorder=0)
+                    alpha=0.18, colors=["#3B82F6"], zorder=0)
 
     def _plot_constraints(self, ax, halfplanes, xmin, xmax, ymin, ymax):
-        palette = ["#1d4ed8","#7c3aed","#0f766e","#d97706","#be123c","#0891b2"]
+        # Vẽ từng đường biên ràng buộc bằng một màu trong palette 6 màu xoay vòng.
+        # Hiển thị nhãn (RB1, RB2, x₁≥0…) ở giữa đoạn, tránh vẽ trùng nhãn.
+        palette = ["#2563EB","#7C3AED","#0F766E","#D97706","#BE123C","#0891B2"]
         seen = set()
         for idx, (a, b, c, sense, label) in enumerate(halfplanes):
             color = palette[idx % len(palette)]
@@ -887,6 +945,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                                   fc="#ffffff", ec=color, alpha=0.88), zorder=3)
 
     def _plot_objective_contours(self, ax, c1, c2, vv, xmin, xmax, ymin, ymax, maximize):
+        # Vẽ 5 đường đồng mức hàm mục tiêu: đường tối ưu liền nét đỏ đậm, 4 đường còn lại là nét đứt mờ để thấy hướng cải thiện z.
         if not vv or abs(c1)+abs(c2) < 1e-12: return
         zvals = sorted(v[2] for v in vv)
         z_best = max(zvals) if maximize else min(zvals)
@@ -901,66 +960,72 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             pts = sorted(pts, key=lambda p:(p[0],p[1]))
             (x1,y1),(x2,y2) = pts[0],pts[-1]
             is_best = abs(lv-z_best) < 1e-9
-            ax.plot([x1,x2],[y1,y2], color="#ef4444",
+            ax.plot([x1,x2],[y1,y2], color="#2563EB",
                     linewidth=2.8 if is_best else 1.6,
                     linestyle="-" if is_best else "--",
-                    alpha=0.72 if is_best else 0.28, zorder=1.5)
+                    alpha=0.75 if is_best else 0.28, zorder=1.5)
             if is_best:
                 tx,ty = (x1+x2)/2,(y1+y2)/2
                 ax.text(tx, ty,
                         f"  z = {fmt_num(Fraction(str(lv)), self.data_mode.get())}",
-                        color="#b91c1c", fontsize=9, weight="bold",
+                        color="#1E3A5F", fontsize=9, weight="bold",
                         bbox=dict(boxstyle="round,pad=0.2",
-                                  fc="#fff1f2", ec="#fca5a5", alpha=0.95), zorder=4)
+                                  fc="#E8F4FD", ec="#B5D4F4", alpha=0.95), zorder=4)
 
     def _plot_vertices(self, ax, vv, maximize):
+        # Sắp xếp các đỉnh theo góc cực (convex hull) rồi tô đa giác mờ và vẽ đường viền chấm.
+        # Mỗi đỉnh được đánh số (1, 2, …) để người dùng đối chiếu với bảng thông tin bên phải.
         if not vv: return
         pts = list(vv)
         cx = sum(p[0] for p in pts)/len(pts)
         cy = sum(p[1] for p in pts)/len(pts)
         pts.sort(key=lambda t: math.atan2(t[1]-cy, t[0]-cx))
         ax.fill([p[0] for p in pts],[p[1] for p in pts],
-                color="#dbeafe", alpha=0.10, zorder=1)
+                color="#E8F4FD", alpha=0.22, zorder=1)
         ax.plot([p[0] for p in pts]+[pts[0][0]],
                 [p[1] for p in pts]+[pts[0][1]],
-                color="#0f172a", linewidth=1.2, linestyle=":", alpha=0.52, zorder=2.5)
+                color="#185FA5", linewidth=1.2, linestyle=":", alpha=0.55, zorder=2.5)
         for idx,(vx,vy,val) in enumerate(pts,start=1):
-            ax.scatter([vx],[vy], s=42, color="#2563eb",
+            ax.scatter([vx],[vy], s=42, color="#3B82F6",
                        edgecolors="white", linewidths=1.0, zorder=5)
             ax.annotate(f"{idx}", xy=(vx,vy), xytext=(6,6),
-                        textcoords="offset points", fontsize=9, color="#0f172a",
+                        textcoords="offset points", fontsize=9, color="#1E3A5F",
                         bbox=dict(boxstyle="circle,pad=0.18",
-                                  fc="#eff6ff", ec="#93c5fd", alpha=0.95), zorder=6)
+                                  fc="#E8F4FD", ec="#B5D4F4", alpha=0.95), zorder=6)
 
     def _plot_optimal_point(self, ax, optimal, maximize):
+        # Đánh dấu điểm tối ưu bằng hình sao vàng lớn (size 220) và chú thích
+        # tọa độ + giá trị z, với mũi tên chỉ vào điểm.
         if optimal is None: return
         bx,by,bz = optimal
-        ax.scatter([bx],[by], s=220, marker="*", color="#f59e0b",
-                   edgecolors="#111827", linewidths=1.2, zorder=7)
+        ax.scatter([bx],[by], s=220, marker="*", color="#F59E0B",
+                   edgecolors="#1E3A5F", linewidths=1.2, zorder=7)
         ax.annotate(
             f"Điểm tối ưu\n({bx:.3g}, {by:.3g})\nz = {bz:.3g}",
             xy=(bx,by), xytext=(14,18), textcoords="offset points",
             fontsize=10, fontweight="bold",
             bbox=dict(boxstyle="round,pad=0.35",
-                      fc="#fff7ed", ec="#fb923c", alpha=0.98),
-            arrowprops=dict(arrowstyle="->", color="#fb923c", lw=1.5), zorder=8)
+                      fc="#FEF9C3", ec="#F59E0B", alpha=0.98),
+            arrowprops=dict(arrowstyle="->", color="#D97706", lw=1.5), zorder=8)
 
     def _configure_axes(self, ax, xmin, xmax, ymin, ymax):
+        # Thiết lập tiêu đề, nhãn trục, trục tọa độ (axhline/axvline), legend.
         ax.set_xlim(xmin,xmax); ax.set_ylim(ymin,ymax)
         ax.set_aspect("auto", adjustable="box")
         ax.set_xlabel("x₁", fontsize=12, fontweight="bold")
         ax.set_ylabel("x₂", fontsize=12, fontweight="bold")
         ax.set_title("Miền chấp nhận được và đường đồng mức hàm mục tiêu",
-                     fontsize=14, fontweight="bold", pad=10, color="#0f172a")
+                     fontsize=14, fontweight="bold", pad=10, color="#1E3A5F")
         ax.axhline(0,color="#334155",linewidth=1.1,alpha=0.7,zorder=0.5)
         ax.axvline(0,color="#334155",linewidth=1.1,alpha=0.7,zorder=0.5)
         hs, ls = ax.get_legend_handles_labels()
         if hs:
             ax.legend(hs,ls,loc="upper left",frameon=True,fontsize=9,
                       title="Ràng buộc",title_fontsize=10,fancybox=True,
-                      shadow=False,facecolor="#ffffff",edgecolor="#cbd5e1")
+                      shadow=False,facecolor="#FAFBFC",edgecolor="#B5D4F4")
 
     def _create_control_button(self, parent, text, color, hover_color, command):
+        # Tạo nút tkinter với hiệu ứng hover đơn giản (đổi màu nền khi rê chuột).
         btn = tk.Button(parent, text=text, font=("Segoe UI",10,"bold"),
                         bg=color, fg="white", activebackground=hover_color,
                         activeforeground="white", relief="flat", bd=0,
@@ -971,6 +1036,9 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return btn
 
     def _enable_canvas_interactions(self, ax, canvas):
+        # Gắn các sự kiện chuột vào canvas matplotlib:
+        #   - Kéo nút trái: pan (di chuyển khung nhìn)
+        #   - Lăn chuột: zoom vào/ra quanh vị trí con trỏ
         state = {"press": None}
         def clamp():
             xm,xx = ax.get_xlim(); ym,yx = ax.get_ylim()
@@ -1002,8 +1070,9 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         canvas.mpl_connect("scroll_event",on_scroll)
 
     def _create_zoom_controls(self, parent, ax, canvas, initial_xlim, initial_ylim):
-        cf = tk.Frame(parent, bg="#0f172a",
-                      highlightthickness=1, highlightbackground="#334155")
+        # Tạo thanh điều khiển zoom ở góc dưới trái: nút "+" (zoom in), "−" (zoom out), "return" (trở về khung nhìn ban đầu) và nhãn gợi ý thao tác kéo/lăn chuột.
+        cf = tk.Frame(parent, bg="#1E3A5F",
+                      highlightthickness=1, highlightbackground="#185FA5")
         cf.place(relx=0.015, rely=0.965, anchor="sw")
         def zi():
             x1,x2=ax.get_xlim(); y1,y2=ax.get_ylim()
@@ -1018,21 +1087,22 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         def rst():
             ax.set_xlim(initial_xlim); ax.set_ylim(initial_ylim)
             self._request_canvas_redraw(canvas)
-        self._create_control_button(cf,"+","#2563eb","#1d4ed8",zi)
-        self._create_control_button(cf,"−","#f59e0b","#d97706",zo)
-        self._create_control_button(cf,"return","#10b981","#059669",rst)
+        self._create_control_button(cf,"+","#3B82F6","#2563EB",zi)
+        self._create_control_button(cf,"−","#F59E0B","#D97706",zo)
+        self._create_control_button(cf,"return","#6EBF8B","#4DAA72",rst)
         tk.Label(cf, text="Kéo chuột trái để di chuyển -- Lăn chuột để zoom",
-                 bg="#0f172a", fg="#e2e8f0", font=("Segoe UI",9)).pack(
+                 bg="#1E3A5F", fg="#B5D4F4", font=("Segoe UI",9)).pack(
             side="left", padx=10, pady=6)
 
     def _create_info_panel(self, parent, prob, vertices, vv, optimal, maximize):
-        info_frame = tk.Frame(parent, bg="#ffffff", bd=0,
-                              highlightthickness=1, highlightbackground="#cbd5e1")
+        # Tạo bảng tóm tắt nhỏ ở góc trên phải đồ thị: kiểu bài toán, số ràng buộc, số đỉnh khả thi, tọa độ và giá trị tối ưu (nếu có), hướng dẫn tương tác.
+        info_frame = tk.Frame(parent, bg="#FAFBFC", bd=0,
+                              highlightthickness=1, highlightbackground="#B5D4F4")
         info_frame.place(relx=0.987, rely=0.02, anchor="ne", width=320, height=182)
-        title = tk.Label(info_frame, text="Tóm tắt", bg="#ffffff",
-                         fg="#0f172a", font=("Segoe UI",11,"bold"))
+        title = tk.Label(info_frame, text="Tóm tắt", bg="#FAFBFC",
+                         fg="#1E3A5F", font=("Segoe UI",11,"bold"))
         title.pack(anchor="w", padx=10, pady=(8,2))
-        text = tk.Text(info_frame, wrap="word", bg="#ffffff", fg="#0f172a",
+        text = tk.Text(info_frame, wrap="word", bg="#FAFBFC", fg="#334155",
                        bd=0, font=("Segoe UI",9), height=8, padx=10, pady=6)
         text.pack(fill="both", expand=True)
         lines = [
@@ -1049,6 +1119,8 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
 
     def _format_problem(self, engine):
+        # Tạo chuỗi hiển thị bài toán gốc (trước chuẩn hóa):
+        # dòng "min/max Z = c1·x1 + … + cn·xn" và từng ràng buộc, điều kiện dấu.
         mode = self.data_mode.get()
         def expr(coeffs, names):
             parts=[]
@@ -1072,6 +1144,10 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return "\n".join(lines)
 
     def _format_standardization(self, engine):
+        # Tạo chuỗi giải thích từng bước chuẩn hóa:
+        #   - Biến tự do / âm được thay thế bằng biến phụ
+        #   - Ràng buộc ≥ nhân (-1), ràng buộc = thêm biến bù
+        #   - Hàm max nhân (-1) để đưa về dạng min
         mode = self.data_mode.get()
         def expr(coeffs, names):
             parts=[]
@@ -1125,6 +1201,8 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return "\n".join(lines)
 
     def _dict_lines(self, snapshot):
+        # Tạo danh sách dòng văn bản cho bảng từ vựng (dictionary) tại một snapshot.
+        # Mỗi dòng: "[tên biến cơ sở] = [hằng số]  [hệ số biến phi cơ sở…]"
         mode=self.data_mode.get(); names=snapshot.all_names
         widths=[]
         for j,name in enumerate(names):
@@ -1143,6 +1221,11 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return lines
 
     def _insert_snapshot(self, snapshot, title, tags=None):
+        # Chèn tiêu đề và bảng từ vựng vào output ScrolledText.
+        # Nếu có tags (entering / pivot_row), áp dụng highlight màu:
+        #   pivotcol  → tất cả ô cột biến vào
+        #   pivotrow  → toàn bộ hàng biến ra
+        #   pivotcell → ô giao (phần tử xoay)
         self.output.insert(tk.END, title+"\n","h2")
         start=self.output.index(tk.END)
         for line in self._dict_lines(snapshot):
@@ -1164,6 +1247,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                     if p!=-1: self.output.tag_add("pivotcell",f"{rn}.{p}",f"{rn}.{p+len(var_name)}")
 
     def _insert_step_note(self, step, snapshot):
+        # In giải thích chi tiết một bước xoay: quy tắc chọn biến vào (Dantzig/Bland), bảng tỉ số θ để chọn biến ra, phần tử xoay, và cờ suy biến nếu θ = 0.
         mode=self.data_mode.get(); names=snapshot.all_names
         enter=names[step.entering] if step.entering is not None else "?"
         leave=names[step.leaving_var] if step.leaving_var is not None else "?"
@@ -1199,6 +1283,8 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         if step.degenerate: self.output.insert(tk.END,"— Bước suy biến (θ=0).\n","warn")
 
     def _linear_text(self, const, terms, mode):
+        # Tạo chuỗi biểu diễn biểu thức tuyến tính: hằng số + tổng các hạng tử.
+        # Bỏ qua hệ số = 0; xử lý dấu + / - giữa các hạng tử cho đúng ký pháp.
         parts=[]
         if const!=0 or not terms: parts.append(fmt_num(const,mode))
         for coef,name in terms:
@@ -1209,6 +1295,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return " ".join(parts).strip() if parts else "0"
 
     def _format_multiple_optimal_family(self, engine, snapshot, report):
+        # Tạo chuỗi mô tả họ vô số nghiệm tối ưu: biến nào có hệ số 0 trong hàm mục tiêu được dùng làm tham số tự do. Hiển thị z*, biến cơ sở theo tham số đó.
         mode=self.data_mode.get(); free_vars=report.multiple_optimal_vars or []
         if not free_vars: return []
         param_name=snapshot.all_names[free_vars[0]]
@@ -1220,6 +1307,8 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return lines
 
     def _format_multiple_optimal_conclusion(self, engine, snapshot, report):
+        # Tạo phần KẾT LUẬN cho trường hợp vô số nghiệm:
+        # Biểu diễn x1..xn theo tham số tự do (biến free_vars) dùng variable_mapping để quy đổi từ biến chuẩn hóa về biến gốc của người dùng.
         mode=self.data_mode.get(); free_vars=report.multiple_optimal_vars or []
         if not free_vars: return []
         lines=["  Nghiệm tối ưu:","  {"]
@@ -1241,6 +1330,9 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         lines.append("  }"); return lines
 
     def _render_trace(self, title, trace):
+        # In toàn bộ quá trình lặp của một pha (Dantzig hoặc Bland):
+        #   - Với mỗi bước: in bảng từ vựng trước xoay (có highlight) → ghi chú bước → bảng sau xoay
+        #   - In trạng thái kết thúc: tối ưu / không giới nội / xoay vòng
         if not trace.steps:
             self.output.insert(tk.END,"Từ vựng ban đầu:\n","h2")
             if trace.final_snapshot: self._insert_snapshot(trace.final_snapshot,"")
@@ -1260,6 +1352,11 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         elif trace.status=="cycle": self.output.insert(tk.END,"  Dantzig lặp → chuyển sang Bland.\n","warn")
 
     def _render_result(self, report):
+        # Xóa output cũ và in toàn bộ lời giải theo cấu trúc:
+        #   1. Bài toán gốc + chuẩn hóa
+        #   2. Pha 1 (nếu cần biến phụ x0): trace Dantzig [→ Bland nếu lặp]
+        #   3. Pha 2: trace Dantzig [→ Bland nếu lặp]
+        #   4. KẾT LUẬN: trạng thái, z*, nghiệm tối ưu (hoặc họ vô số nghiệm)
         self.output.delete("1.0",tk.END)
         engine=report.engine; mode=self.data_mode.get()
         self.output.insert(tk.END,self._format_problem(engine)+"\n\n","h1")
@@ -1309,9 +1406,17 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         if d: self.output.insert(tk.END,f"  Có {d} bước suy biến.\n","warn")
 
     def _has_aux_phase1(self, engine):
+        # Trả về True nếu engine đã thực hiện pha 1 với biến phụ x0
+        # (xảy ra khi có ít nhất một b_i âm sau khi đưa về dạng chuẩn).
         return bool(getattr(engine,"need_aux_phase1",False))
 
     def run_solver(self):
+        # Điểm vào chính khi người dùng bấm "Chạy giải thuật" hoặc nhấn Ctrl+Alt+R:
+        #   1. Thu thập dữ liệu từ giao diện (_collect_problem)
+        #   2. Tạo SimplexEngine và gọi solve_full() để giải đầy đủ
+        #   3. Lưu kết quả vào last_report / last_problem để xuất file / trực quan
+        #   4. Hiển thị lời giải và cập nhật thanh trạng thái
+        #   5. Bắt ngoại lệ (nhập liệu sai / lỗi giải thuật) và thông báo lỗi
         try:
             prob=self._collect_problem()
             engine=SimplexEngine(prob)
