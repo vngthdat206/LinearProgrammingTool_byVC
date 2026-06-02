@@ -17,96 +17,180 @@ from viz3d import Viz3DMixin
 class SimplexApp(Viz3DMixin, tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Ứng dụng Quy hoạch tuyến tính — Đơn hình")
+        self.title("Ứng dụng Giải bài toán Quy hoạch tuyến tính (tổng quát)")
         self.geometry("1380x920")
         self.minsize(1100, 760)
 
-        self.objective_sense = tk.StringVar(value="max")
-        self.n_vars = tk.IntVar(value=3)
+        # Thiết lập các biến trạng thái mặc định
+        self.objective_sense = tk.StringVar(value="min") # kiểu bài toán mặc định là min
+        self.n_vars = tk.IntVar(value=2)
         self.n_constraints = tk.IntVar(value=3)
         self.data_mode = tk.StringVar(value="Phân số")
         self.method_preference = tk.StringVar(value="auto")
         self.demo_preset_var = tk.StringVar(value="Ví dụ giải bằng 2 pha")
-        self.need_aux_phase1 = False
-        self.phase1_aux_var_index: Optional[int] = None
+        self.need_aux_phase1 = False # cờ cho biết có cần biến phụ để giải pha 1 hay không
+        self.phase1_aux_var_index: Optional[int] = None # chỉ số của biến phụ nếu cần thiết
 
-        self.obj_entries: List[tk.Entry] = []
-        self.var_signs: List[ttk.Combobox] = []
-        self.constraint_entries: List[List[tk.Entry]] = []
-        self.constraint_senses: List[ttk.Combobox] = []
-        self.constraint_rhs: List[tk.Entry] = []
+        # Danh sách các widget nhập liệu sẽ được tạo động theo số biến và ràng buộc, lưu lại để dễ truy cập khi thu thập dữ liệu
+        self.obj_entries: List[tk.Entry] = [] # hệ số x(j+1) của hàm mục tiêu
+        self.var_signs: List[ttk.Combobox] = [] # dấu của x(j+1): ≥0 / ≤0 / tự do
+        self.constraint_entries: List[List[tk.Entry]] = [] # hệ số x(j+1) của từng ràng buộc i
+        self.constraint_senses: List[ttk.Combobox] = [] # dấu của ràng buộc i: ≤ / ≥ / =
+        self.constraint_rhs: List[tk.Entry] = [] # vế phải của ràng buộc i
 
+        # Biến lưu kết quả giải thuật gần nhất để có thể xuất file hoặc trực quan hóa nếu phù hợp
         self.last_report: Optional[SolveReport] = None
         self.last_problem: Optional[ProblemData] = None
         self.export_btn: Optional[tk.Button] = None
         self.viz_btn: Optional[tk.Button] = None
         self.viz3d_btn: Optional[tk.Button] = None
 
+        # Khởi động giao diện
         self._setup_style()
         self._build_ui()
         self._build_inputs()
+        # Phím tắt đề chạy giải thuật: Ctrl + Alt + R (không phân biệt hoa thường)
         self.bind_all("<Control-Alt-r>", lambda e: self.run_solver())
         self.bind_all("<Control-Alt-R>", lambda e: self.run_solver())
 
 
     def _setup_style(self):
+        # Palette màu cố định: "Nordic Frost"
+        ME = {
+            # Nền tổng thể: trắng tuyết nhạt, sạch và thoáng
+            "bg":           "#FAFBFC",
+            # Nền header (thanh tiêu đề trên cùng): xanh đêm Bắc Âu
+            "header_bg":    "#1E3A5F",
+            # Chữ tiêu đề trên header: trắng tinh
+            "header_fg":    "#FFFFFF",
+            # Chữ phụ trên header: xanh băng nhạt
+            "subheader_fg": "#B5D4F4",
+            # Chữ nội dung chính: xanh đen trung tính
+            "fg":           "#334155",
+            # Viền và tiêu đề labelframe: xanh dương đậm vừa
+            "frame_fg":     "#185FA5",
+            # Nút hành động chính (Chạy giải thuật): xanh dương Nordic
+            "accent":       "#3B82F6",
+            # Nút hành động chính khi hover / active: xanh dương đậm hơn
+            "accent_hover": "#2563EB",
+            # Nút hành động chính khi bị vô hiệu hóa: xám lạnh
+            "accent_dis":   "#CBD5E1",
+            # Chữ trên nút bị vô hiệu hóa: xám xanh
+            "dis_fg":       "#94A3B8",
+            # Nút cảnh báo (Điền ví dụ): hổ phách vàng ấm
+            "warn":         "#F59E0B",
+            # Nút cảnh báo khi hover: hổ phách đậm hơn
+            "warn_hover":   "#D97706",
+            # Nền vùng lời giải (output): trắng tinh
+            "output_bg":    "#FFFFFF",
+            # Chữ trong vùng lời giải: xanh đen đậm
+            "output_fg":    "#1E293B",
+            # Màu tag h1 (tên bài toán): xanh dương Nordic đậm
+            "h1":           "#185FA5",
+            # Màu tag h2 (tiêu đề bước): xanh đêm Bắc Âu
+            "h2":           "#1E3A5F",
+            # Màu tag note (ghi chú, kết luận): teal sage
+            "note":         "#0F766E",
+            # Màu tag warn (cảnh báo suy biến, không giới nội): hổ phách đậm
+            "warn_tag":     "#B45309",
+            # Nền ô cột xoay (pivotcol): vàng băng nhạt
+            "pivot_col":    "#FEF9C3",
+            # Nền hàng xoay (pivotrow): xanh băng nhạt
+            "pivot_row":    "#E8F4FD",
+            # Nền ô xoay giao nhau (pivotcell): xanh dương nhạt rõ
+            "pivot_cell":   "#BFDBFE",
+            # Nền kết luận cuối: xanh lá sage nhạt
+            "conclusion":   "#F0FDF4",
+        }
+        self._me = ME  # lưu lại để các hàm khác có thể tham chiếu nếu cần
+
+        # Áp dụng theme nền "clam" của ttk (nếu không có thì dùng theme mặc định)
         style = ttk.Style(self)
         try:
             style.theme_use("clam")
         except Exception:
             pass
-        style.configure("TFrame", background="#f4f1eb")
-        style.configure("Header.TFrame", background="#1f2937")
-        style.configure("Header.TLabel", background="#1f2937",
-                        foreground="#ffffff", font=("Segoe UI", 16, "bold"))
-        style.configure("SubHeader.TLabel", background="#1f2937",
-                        foreground="#dbeafe", font=("Segoe UI", 10))
-        style.configure("TLabel", background="#f4f1eb",
-                        foreground="#172033", font=("Segoe UI", 10))
-        style.configure("TLabelframe", background="#f4f1eb", borderwidth=1)
-        style.configure("TLabelframe.Label", background="#f4f1eb",
-                        foreground="#111827", font=("Segoe UI", 10, "bold"))
+
+        # Nền mặc định cho tất cả TFrame: màu be nhạt "Muted Earth"
+        style.configure("TFrame", background=ME["bg"])
+
+        # Header: nền xanh than đậm, chữ trắng ngà nổi bật
+        style.configure("Header.TFrame", background=ME["header_bg"])
+        style.configure("Header.TLabel", background=ME["header_bg"],
+                        foreground=ME["header_fg"], font=("Segoe UI", 16, "bold"))
+
+        # Dòng phụ dưới tiêu đề: chữ sage nhạt trên nền than
+        style.configure("SubHeader.TLabel", background=ME["header_bg"],
+                        foreground=ME["subheader_fg"], font=("Segoe UI", 10))
+
+        # Nhãn nội dung thông thường: nâu đen trên nền be
+        style.configure("TLabel", background=ME["bg"],
+                        foreground=ME["fg"], font=("Segoe UI", 10))
+
+        # Khung nhóm (LabelFrame): nền be, viền 1px
+        style.configure("TLabelframe", background=ME["bg"], borderwidth=1)
+        style.configure("TLabelframe.Label", background=ME["bg"],
+                        foreground=ME["frame_fg"], font=("Segoe UI", 10, "bold"))
+
+        # Nút chung: font đậm, padding thoáng
         style.configure("TButton", font=("Segoe UI", 10, "bold"), padding=8)
-        style.configure("Accent.TButton", background="#2563eb", foreground="white")
+
+        # Nút hành động chính (Accent): xanh rừng "Muted Earth"
+        style.configure("Accent.TButton", background=ME["accent"], foreground=ME["header_fg"])
         style.map(
             "Accent.TButton",
-            background=[("disabled", "#d1d5db"), ("active", "#1d4ed8"),
-                        ("!disabled", "#2563eb")],
-            foreground=[("disabled", "#6b7280"), ("!disabled", "white")],
+            background=[("disabled", ME["accent_dis"]),
+                        ("active",   ME["accent_hover"]),
+                        ("!disabled", ME["accent"])],
+            foreground=[("disabled", ME["dis_fg"]),
+                        ("!disabled", ME["header_fg"])],
         )
-        style.configure("Warn.TButton", background="#b45309", foreground="white")
-        style.map("Warn.TButton", background=[("active", "#92400e")])
+
+        # Nút cảnh báo (Warn): cam đất, hover sang nâu đỏ đậm
+        style.configure("Warn.TButton", background=ME["warn"], foreground=ME["header_fg"])
+        style.map("Warn.TButton", background=[("active", ME["warn_hover"])])
+
+        # Combobox và Treeview: padding/chiều cao hàng tiêu chuẩn
         style.configure("TCombobox", padding=4)
         style.configure("Treeview", rowheight=28)
 
 
     def _build_ui(self):
+        # Dựng bố cục tổng thể của cửa sổ chính:
+        #   row 0 → header (tiêu đề cố định, không co giãn)
+        #   row 1 → vùng làm việc chính (co giãn theo cửa sổ)
+        #   row 2 → thanh trạng thái (status bar, cố định)
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
 
+        # Thanh tiêu đề trên cùng: Tên ứng dụng + Hướng dẫn tóm tắt
         header = ttk.Frame(self, style="Header.TFrame", padding=(16, 12))
         header.grid(row=0, column=0, sticky="nsew")
         header.columnconfigure(0, weight=1)
         ttk.Label(header,
-                  text="Ứng dụng Quy hoạch tuyến tính — Phương pháp Đơn hình",
+                  text="Ứng dụng Giải bài toán Quy hoạch tuyến tính (tổng quát)",
                   style="Header.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(
             header,
-            text="Tab để chuyển ô • Ctrl+Alt+R để giải • "
-                 "Hỗ trợ max/min, ràng buộc ≤ ≥ =, biến tự do và biến dấu âm",
+            text="Tab để chuyển ô - Tổ hợp phím Ctrl + Alt + R để giải - Hỗ trợ max/min, ràng buộc ≤ ≥ =, biến tự do - Giải bằng Dantzig / Bland / 2 pha - Trực quan hóa 2D / 3D",
             style="SubHeader.TLabel",
         ).grid(row=1, column=0, sticky="w", pady=(4, 0))
 
+        # Khung chính: 2 cột
+        # Cột 0 (left, cố định): bảng thiết lập + nhập liệu
+        # Cột 1 (right, co giãn): vùng hiển thị lời giải
         main = ttk.Frame(self, padding=14)
         main.grid(row=1, column=0, sticky="nsew")
         main.columnconfigure(0, weight=0)
         main.columnconfigure(1, weight=1)
         main.rowconfigure(0, weight=1)
 
+        # Cột trái: row 0 → Thiết lập (config), row 1 → Mẫu demo, row 3 → Nhập bài toán
         left = ttk.Frame(main)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
         left.rowconfigure(3, weight=1)
 
+        # Nhóm "Thiết lập": kiểu dữ liệu, số biến, số ràng buộc, nút tạo lại
         config = ttk.Labelframe(left, text="Thiết lập", padding=12)
         config.grid(row=0, column=0, sticky="ew")
         config.columnconfigure(1, weight=1)
@@ -134,33 +218,36 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                    command=self._build_inputs).grid(
             row=3, column=0, columnspan=2, sticky="ew", pady=(10, 0))
 
+        # Hai nút đặt sát nhau trong một frame phụ; mỗi nút chiếm một nửa chiều rộng
         action_row = ttk.Frame(config)
         action_row.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(8, 0))
         action_row.columnconfigure(0, weight=1)
         action_row.columnconfigure(1, weight=1)
 
+        # Nút "Xuất file .txt": ban đầu bị vô hiệu hóa (xám); chỉ sáng lên sau khi giải xong
         self.export_btn = tk.Button(
             action_row,
             text="📄  Xuất file .txt",
             font=("Segoe UI", 9, "bold"),
-            bg="#9ca3af", fg="white",
-            activebackground="#6b7280", activeforeground="white",
+            bg="#CBD5E1", fg="white",
+            activebackground="#94A3B8", activeforeground="white",
             relief="flat", bd=0, padx=6, pady=7,
             cursor="arrow", state=tk.DISABLED,
             command=self.export_solution_txt,
         )
         self.export_btn.grid(row=0, column=0, sticky="ew", padx=(0, 4))
         self.export_btn.bind("<Enter>",
-                             lambda e: self._on_button_enter(e, "#0f766e"))
+                             lambda e: self._on_button_enter(e, "#2563EB"))
         self.export_btn.bind("<Leave>",
-                             lambda e: self._on_button_leave(e, "#9ca3af"))
+                             lambda e: self._on_button_leave(e, "#CBD5E1"))
 
+        # Nút "Trực quan hóa (2D/3D)": luôn hiển thị, nhưng đổi nhãn/màu theo số biến
         self.viz_btn = tk.Button(
             action_row,
             text="📊  Trực quan hóa (2D)",
             font=("Segoe UI", 9, "bold"),
-            bg="#0d9488", fg="white",
-            activebackground="#0f766e", activeforeground="white",
+            bg="#6EBF8B", fg="white",
+            activebackground="#4DAA72", activeforeground="white",
             relief="flat", bd=0, padx=6, pady=7,
             cursor="hand2",
             command=self._viz_dispatch,
@@ -220,6 +307,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             lambda e: self.input_canvas.itemconfigure(
                 self.input_window, width=e.width))
 
+        # Cột phải (hiển thị lời giải): Dùng ScrolledText để cuộn cả dọc lẫn ngang; font monospace để canh cột bảng từ vựng
         right = ttk.Labelframe(main, text="Lời giải", padding=8)
         right.grid(row=0, column=1, sticky="nsew")
         right.rowconfigure(0, weight=1)
@@ -480,12 +568,12 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                                    cursor="arrow")
 
     _VIZ_STYLES = {
-        2: dict(bg="#0d9488", hover="#0f766e", icon="📊",
+        2: dict(bg="#6EBF8B", hover="#4DAA72", icon="📊",
                 label="Trực quan hóa (2D)"),
-        3: dict(bg="#7c3aed", hover="#6d28d9", icon="🧊",
+        3: dict(bg="#7C3AED", hover="#6D28D9", icon="🧊",
                 label="Trực quan hóa (3D)"),
     }
-    _VIZ_DISABLED = dict(bg="#9ca3af", hover="#6b7280",
+    _VIZ_DISABLED = dict(bg="#CBD5E1", hover="#94A3B8",
                          icon="🔒", label="Trực quan hóa (>3 biến)")
 
     def _update_viz_btn_state(self) -> None:
