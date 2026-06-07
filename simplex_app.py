@@ -1309,16 +1309,36 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         for nm in extra_x: lines.append(f"        {nm} = {nm}")
         lines+=["","_Chuẩn hóa hàm mục tiêu:"]
         if engine.problem.objective_sense=="min": lines.append("    Hàm min, giữ nguyên:")
-        else: lines.append("    Hàm max → nhân (-1):")
+        else: lines.append("    Hàm max → đặt Z' = −Z, min Z' = −max Z:")
         obj_expr=expr(engine.std_obj_coeffs, engine.std_names)
-        lines.append(f"        min Z = {obj_expr}")
-        lines+=["","=========================","*Dạng chuẩn của bài toán:","=========================",f"    min Z = {obj_expr}","    {"]
+        lines.append(f"        min Z' = {obj_expr}")
+        z_label = "Z'" if engine.problem.objective_sense == "max" else "Z"
+        lines+=["","=========================",f"*Dạng chuẩn của bài toán:","=========================",f"    min {z_label} = {obj_expr}","    {"]
         for i,row in enumerate(engine.std_constraints):
             lines.append(f"      {expr(row,engine.std_names[:len(row)])} ≤ {fmt_num(engine.std_rhs[i],mode)}")
         slack_names=[nm for nm in engine.std_names if nm.startswith("x") and nm not in {f"x{i+1}" for i in range(n_orig)}]
-        aux_names=[nm for nm in engine.std_names if not nm.startswith("x")]
-        var_list=[f"x{i+1}" for i in range(n_orig)]+slack_names+aux_names
-        lines.append(f"    {', '.join(var_list)} ≥ 0")
+        aux_names=[nm for nm in engine.std_names if not nm.startswith("x") and not nm.startswith("y")]
+        # Điều kiện dấu: chỉ liệt kê các biến chuẩn hóa thực sự >= 0
+        # Biến gốc x_i tự do không >= 0; chỉ các biến thay thế (a_i, b_i, y_i) mới >= 0
+        nonneg_vars = []
+        for i, sign in enumerate(engine.problem.var_signs):
+            nm = f"x{i+1}"
+            if sign == "≥0":
+                nonneg_vars.append(nm)
+            elif sign == "≤0":
+                nonneg_vars.append(f"y{i+1}")
+            else:  # tự do: a_i, b_i >= 0 (không phải x_i)
+                nonneg_vars.append(f"a{i+1}")
+                nonneg_vars.append(f"b{i+1}")
+        nonneg_vars += slack_names + [nm for nm in engine.std_names if nm in engine.all_names and nm.startswith("x") and nm not in {f"x{i+1}" for i in range(n_orig)}]
+        # Thêm biến nhân tạo
+        art_names_list = [engine.all_names[a] for a in engine.artificial_vars]
+        nonneg_vars += art_names_list
+        # Deduplicate giữ thứ tự
+        seen_nonneg = set(); nonneg_unique = []
+        for v in nonneg_vars:
+            if v not in seen_nonneg: seen_nonneg.add(v); nonneg_unique.append(v)
+        lines.append(f"    {', '.join(nonneg_unique)} ≥ 0")
         lines.append("    }")
         return "\n".join(lines)
 
@@ -1357,7 +1377,13 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
         def line_for(ri, label, const_s):
             label_part = label.ljust(label_w)
-            const_part = const_s.rjust(const_w)
+            # Dòng objective (ri=0): nếu const=0 và có hạng tử thì bỏ "0" đi
+            row_const, _, row_coeffs = all_rows[ri]
+            has_terms = any(row_coeffs.get(j, Fraction(0)) != 0 for j in range(len(names)))
+            if ri == 0 and row_const == 0 and has_terms:
+                const_part = " " * const_w   # giữ chỗ nhưng không in "0"
+            else:
+                const_part = const_s.rjust(const_w)
             # Mỗi ô: ljust theo col_w[j] (giữ chỗ cho ô rỗng)
             term_parts = [col_cells[ri][j].ljust(col_w[j]) for j in range(len(names))]
             # Ghép bằng GAP khoảng trắng, sau đó rstrip để bỏ trailing spaces
@@ -1496,68 +1522,168 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             if step.after is not None:
                 self._insert_snapshot(step.after,f"Sau xoay bước {step.iteration}:")
                 self.output.insert(tk.END,"\n")
-        if trace.status=="optimal": self.output.insert(tk.END,"  Các hệ số cải thiện không còn âm → tối ưu.\n","note")
-        elif trace.status=="unbounded": self.output.insert(tk.END,"  Bài toán không giới nội.\n","warn")
+        if trace.status=="optimal": self.output.insert(tk.END,"  Tất cả hệ số trên hàm mục tiêu đều ≥ 0 → từ vựng hiện tại là tối ưu.\n","note")
+        elif trace.status=="unbounded":
+            # Tìm biến vào từ bước cuối để nêu lý do
+            last_entering = None
+            if trace.steps:
+                last_step = trace.steps[-1]
+                if last_step.status == "unbounded" and last_step.entering is not None:
+                    last_entering = trace.steps[-1].before.all_names[last_step.entering]
+            reason = f" (có biến vào {last_entering} nhưng không có biến ra)" if last_entering else ""
+            self.output.insert(tk.END,f"  Bài toán không giới nội{reason}.\n","warn")
         elif trace.status=="cycle": self.output.insert(tk.END,"  Dantzig lặp → chuyển sang Bland.\n","warn")
 
     def _render_result(self, report):
-        # Xóa output cũ và in toàn bộ lời giải theo cấu trúc:
-        #   1. Bài toán gốc + chuẩn hóa
-        #   2. Pha 1 (nếu cần biến phụ x0): trace Dantzig [→ Bland nếu lặp]
-        #   3. Pha 2: trace Dantzig [→ Bland nếu lặp]
-        #   4. KẾT LUẬN: trạng thái, z*, nghiệm tối ưu (hoặc họ vô số nghiệm)
         self.output.delete("1.0",tk.END)
         engine=report.engine; mode=self.data_mode.get()
         self.output.insert(tk.END,self._format_problem(engine)+"\n\n","h1")
         self.output.insert(tk.END,self._format_standardization(engine)+"\n","mono")
+
+        is_max = engine.problem.objective_sense == "max"
+        # Nhãn hàm mục tiêu trong từ vựng: z' nếu max (vì đã đổi dấu), z nếu min
+        obj_label = "z'" if is_max else "z"
+
         if self._has_aux_phase1(engine):
-            self.output.insert(tk.END,"\n=============================\n*Pha 1: Giải bài toán bổ trợ\n=============================\n","h2")
-            self.output.insert(tk.END,"_ Tồn tại b_i âm → giải pha 1 bằng biến phụ x0\n","note")
+            # ── Pha 1: biến phụ x0 ──────────────────────────────────────
+            self.output.insert(tk.END,
+                "\n=============================\n"
+                " Pha 1: Giải bài toán bổ trợ\n"
+                "=============================\n","h2")
+            self.output.insert(tk.END,
+                "  Tồn tại b_i < 0 → cần tìm cơ sở khả thi ban đầu bằng bài toán bổ trợ.\n"
+                "  Bài toán bổ trợ: min x0\n"
+                "  Thêm x0 vào tất cả các ràng buộc: Ax − x0 ≤ b, x0, x1, ... ≥ 0\n"
+                "  Xoay x0 vào: biến ra là hàng có b_i âm nhất.\n\n","note")
             self._render_trace("Pha 1",report.dantzig)
             if report.phase1_bland is not None and report.phase1_bland is not report.dantzig:
-                self.output.insert(tk.END,"\n*Bland sau Dantzig lặp ở pha 1\n","h2")
+                self.output.insert(tk.END,"\n Bland sau Dantzig lặp ở pha 1\n","h2")
                 self._render_trace("Pha 1 - Bland",report.phase1_bland)
             self.output.insert(tk.END,"\n")
             if report.status=="infeasible":
                 self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
-                self.output.insert(tk.END,"  Vô nghiệm: x0 vẫn trong cơ sở.\n","warn"); return
+                self.output.insert(tk.END,
+                    "  Vô nghiệm: sau Pha 1, x0 vẫn còn trong cơ sở (x0 > 0)\n"
+                    "  → miền chấp nhận được rỗng.\n","warn")
+                return
             if report.phase2_trace is not None:
-                self.output.insert(tk.END,"\n============================\n*Pha 2: Giải bài toán gốc\n============================\n","h2")
+                # In bước chuyển sang pha 2
+                snap1 = report.dantzig.final_snapshot
+                if snap1:
+                    self.output.insert(tk.END,
+                        "\n────────────────────────────────────\n"
+                        " Chuyển sang Pha 2\n"
+                        "────────────────────────────────────\n","h2")
+                    self.output.insert(tk.END,
+                        f"  δ = x0 = 0 → cho x0 = 0, loại x0 khỏi tất cả ràng buộc.\n"
+                        f"  Thay hàm mục tiêu gốc vào từ vựng hiện tại:\n\n","note")
+                self.output.insert(tk.END,
+                    "\n============================\n"
+                    " Pha 2: Giải bài toán gốc\n"
+                    "============================\n","h2")
                 self._render_trace("Pha 2",report.phase2_trace)
             else:
                 self.output.insert(tk.END,"\nKẾT LUẬN\n  Vô nghiệm.\n","warn"); return
+
+        elif engine.artificial_vars:
+            # ── Pha 1 cổ điển: biến nhân tạo từ ràng buộc = ────────────
+            self.output.insert(tk.END,
+                "\n=============================\n"
+                " Pha 1: Loại biến nhân tạo\n"
+                "=============================\n","h2")
+            art_names = [engine.all_names[a] for a in engine.artificial_vars]
+            self.output.insert(tk.END,
+                f"  Ràng buộc đẳng thức → thêm biến nhân tạo: {', '.join(art_names)}\n"
+                f"  Bài toán bổ trợ: min {' + '.join(art_names)}\n\n","note")
+            self._render_trace("Pha 1",report.dantzig)
+            if report.phase1_bland is not None and report.phase1_bland is not report.dantzig:
+                self.output.insert(tk.END,"\n Bland sau Dantzig lặp ở pha 1\n","h2")
+                self._render_trace("Pha 1 - Bland",report.phase1_bland)
+            self.output.insert(tk.END,"\n")
+            if report.status=="infeasible":
+                self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
+                self.output.insert(tk.END,
+                    f"  Vô nghiệm: Pha 1 kết thúc với giá trị hàm bổ trợ > 0\n"
+                    f"  → tồn tại biến nhân tạo không thể đưa ra khỏi cơ sở.\n","warn")
+                return
+            if report.phase2_trace is not None:
+                self.output.insert(tk.END,
+                    "\n────────────────────────────────────\n"
+                    " Chuyển sang Pha 2\n"
+                    "────────────────────────────────────\n","h2")
+                self.output.insert(tk.END,
+                    f"  min bổ trợ = 0, các biến nhân tạo ({', '.join(art_names)}) = 0 → loại khỏi từ vựng.\n"
+                    f"  Thay hàm mục tiêu gốc vào từ vựng hiện tại.\n\n","note")
+                self.output.insert(tk.END,
+                    "\n============================\n"
+                    " Pha 2: Giải bài toán gốc\n"
+                    "============================\n","h2")
+                self._render_trace("Pha 2",report.phase2_trace)
+            else:
+                self.output.insert(tk.END,"\nKẾT LUẬN\n  Vô nghiệm.\n","warn"); return
+
         else:
-            self.output.insert(tk.END,"\n============================\n Không cần Pha 1\n============================\n_ b_i ≥ 0, cơ sở ban đầu khả thi, giải trực tiếp.\n\n============================\n Giải bài toán\n============================\n","h2")
+            # ── Không cần Pha 1 ─────────────────────────────────────────
+            self.output.insert(tk.END,
+                "\n============================\n"
+                " Không cần Pha 1\n"
+                "============================\n","h2")
+            self.output.insert(tk.END,
+                "  Tất cả b_i ≥ 0 → cơ sở w₁, ..., wₘ là cơ sở khả thi ban đầu,\n"
+                "  không cần thực hiện Pha 1.\n\n"
+                "============================\n"
+                " Giải bài toán\n"
+                "============================\n","note")
             self._render_trace("Giải bài toán",report.dantzig)
             if report.bland is not None and report.bland is not report.dantzig:
                 self.output.insert(tk.END,"\n Bland (sau Dantzig xoay vòng)\n","h2")
                 self._render_trace("Bland",report.bland)
+
         final=report.phase2_trace.final_snapshot if report.phase2_trace and report.phase2_trace.final_snapshot else (report.bland.final_snapshot if report.bland and report.bland.final_snapshot else report.dantzig.final_snapshot)
+
+        # Không giới nội
         if report.status in ("unbounded",) or (report.bland and report.bland.status=="unbounded"):
-            self.output.insert(tk.END,"\nKẾT LUẬN\n  Không giới nội.\n","warn"); return
+            self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
+            if is_max:
+                self.output.insert(tk.END,"  Bài toán không giới nội: z_max = +∞.\n","warn")
+            else:
+                self.output.insert(tk.END,"  Bài toán không giới nội: z_min = −∞.\n","warn")
+            return
         if report.status=="cycle":
             self.output.insert(tk.END,"\nKẾT LUẬN\n  Dantzig và Bland đều lặp.\n","warn"); return
+
         obj_std=report.objective_std or Fraction(0)
         obj_orig=report.objective_orig or Fraction(0)
+
         if report.multiple_optimal and final and report.multiple_optimal_vars:
             for line in self._format_multiple_optimal_family(engine,final,report):
                 self.output.insert(tk.END,line+"\n","warn" if "vô số" in line else "note")
             self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
-            self.output.insert(tk.END,f"  Tối ưu ({report.used_method.upper()}), z* = {fmt_num(obj_std,mode)}, gốc: {fmt_num(obj_orig,mode)}\n","note")
+            if is_max:
+                self.output.insert(tk.END,
+                    f"  Bài toán có vô số nghiệm tối ưu.\n"
+                    f"  z* = max Z = −(min −Z) = −({fmt_num(obj_std,mode)}) = {fmt_num(obj_orig,mode)}\n","note")
+            else:
+                self.output.insert(tk.END,
+                    f"  Bài toán có vô số nghiệm tối ưu.\n"
+                    f"  z* = {fmt_num(obj_orig,mode)}\n","note")
             for line in self._format_multiple_optimal_conclusion(engine,final,report):
                 self.output.insert(tk.END,line+"\n","note")
         else:
             self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
             method_lbl = report.used_method.upper()
-            self.output.insert(tk.END,
-                f"  Tối ưu ({method_lbl}).\n"
-                f"  z* (bảng min) = {fmt_num(obj_std,mode)}\n"
-                f"  Giá trị gốc   = {fmt_num(obj_orig,mode)}\n",
-                "note")
-            # Nghiệm: mỗi xi một dòng, căn phải theo cụm "xi = val"
+            if is_max:
+                self.output.insert(tk.END,
+                    f"  Tối ưu ({method_lbl}).\n"
+                    f"  z* = max Z = −(min −Z) = −({fmt_num(obj_std,mode)}) = {fmt_num(obj_orig,mode)}\n",
+                    "note")
+            else:
+                self.output.insert(tk.END,
+                    f"  Tối ưu ({method_lbl}).\n"
+                    f"  z* = {fmt_num(obj_orig,mode)}\n",
+                    "note")
             n_orig = len(engine.problem.var_signs)
-            sol_strs = [fmt_num(report.solution_orig.get(i, Fraction(0)), mode)
-                        for i in range(n_orig)]
+            sol_strs = [fmt_num(report.solution_orig.get(i, Fraction(0)), mode) for i in range(n_orig)]
             val_w = max(len(s) for s in sol_strs)
             var_w = max(len(f"x{i+1}") for i in range(n_orig))
             self.output.insert(tk.END,"  Nghiệm tối ưu:\n","note")

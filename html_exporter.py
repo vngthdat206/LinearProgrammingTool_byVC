@@ -344,12 +344,12 @@ def _standardization_html(engine, mode: str) -> str:
     # ── Bước 2: Xử lý biến dấu âm / tự do ────────────────────────────────
     sub_notes = []
     for i, sg in enumerate(prob.var_signs):
-        nm = f"x_{{{i+1}}}"
+        nm = f"{{{i+1}}}"
         if sg == "≤0":
-            sub_notes.append(f"$\\quad {nm} \\leq 0$: đặt ${nm}' = -{nm} \\geq 0$")
+            sub_notes.append(f"$\\quad x_{nm} \\leq 0$: đặt $y_{nm} = -x_{nm} \\geq 0$")
         elif sg == "tự do":
-            sub_notes.append(f"$\\quad {nm}$ tự do: đặt ${nm} = {nm}^+ - {nm}^-$, "
-                             f"$\\;{nm}^+,\\, {nm}^- \\geq 0$")
+            sub_notes.append(f"$\\quad x_{nm}$ tự do: đặt $x_{nm} = a_{nm} - b_{nm}$, "
+                             f"$\\;a_{nm},\\, b_{nm} \\geq 0$")
     if sub_notes:
         parts.append("<p>📌 <b>Bước 2: Thay thế biến không chuẩn</b></p>")
         for note in sub_notes:
@@ -385,7 +385,7 @@ def _standardization_html(engine, mode: str) -> str:
         if s == "≤":
             # Thêm biến bù s_i
             slack_nm = f"s_{{{i+1}}}"
-            std_lhs = f"{lhs_str} + {slack_nm}"
+            std_lhs = f"{lhs_str}"
             note = f"(thêm biến bù $+{slack_nm}$)"
         elif s == "≥":
             # Trừ biến bù, thêm biến nhân tạo nếu cần
