@@ -406,7 +406,7 @@ def _standardization_html(engine, mode: str) -> str:
             slack_nm = f"w_{{{w_count}}}"
             orig_rb = f"${lhs_str} = {rhs_tex}$"
             std_rb  = f"${lhs_str} + {art_nm_tex} = {rhs_tex}$"
-            note    = f"thêm biến nhân tạo $+{art_nm_tex}$; cơ sở $w_{{{w_count}}} = {art_nm_tex}$"
+            note    = f"thêm biến độ nhiễm $+{art_nm_tex}$; cơ sở $w_{{{w_count}}} = {art_nm_tex}$"
 
         table_rows.append(
             f"<tr>"
