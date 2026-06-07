@@ -124,13 +124,19 @@ class SimplexEngine:
                     f'  RB{i + 1}: do dấu của ràng buộc đã là "≥", nên nhân cả hai vế với (-1) để đưa về "≤".'
                 )
             elif sense == "=":
-                slack_name = f"x{next_slack}"
+                # Ràng buộc đẳng thức: thêm biến nhân tạo a_k >= 0 vào vế trái
+                # để có cơ sở khả thi ban đầu. a_k sẽ được đẩy ra khỏi cơ sở ở pha 1.
+                # Chuyển "= b" thành "<= b" với hệ số a_k = +1 trong ràng buộc
+                # (tức trong từ vựng w_i = b - ... - (+1)*a_k → a_k xuất hiện với hệ số -1 trong row dict)
+                art_name = f"x{next_slack}"
                 next_slack += 1
-                self.std_names.append(slack_name)
-                self.std_obj_coeffs.append(Fraction(1))
-                row.append(Fraction(-1))
+                art_idx = len(self.std_names)
+                self.std_names.append(art_name)
+                self.std_obj_coeffs.append(Fraction(0))   # hệ số 0 trong objective gốc
+                row.append(Fraction(1))                    # hệ số +1 trong A (ràng buộc Ax <= b)
+                self.artificial_vars.append(art_idx)      # đánh dấu là biến nhân tạo
                 self.standardization_lines.append(
-                    f'  RB{i + 1}: do ràng buộc ở dạng đẳng thức "=", nên ta trừ thêm biến bù {slack_name} ≥ 0 vào vế trái.'
+                    f'  RB{i + 1}: ràng buộc đẳng thức "=", thêm biến nhân tạo {art_name} ≥ 0.'
                 )
                 self.standardization_lines.append(f"  ---> RB{i + 1}:  {fmt_expr(row, self.std_names)} ≤ {fmt_num(rhs, 'Phân số')}")
                 self.std_constraints.append(row)
@@ -171,8 +177,11 @@ class SimplexEngine:
         self.initial_basis = basis
         self.initial_rows = rows
         self.initial_rhs = rhs
-        self.artificial_vars = []
-        self.need_aux_phase1 = any(b < 0 for b in self.initial_rhs)
+        # artificial_vars đã được set trong _transform_constraints (ràng buộc =)
+        # need_aux_phase1: cần pha 1 bổ trợ (x0) khi có b_i < 0
+        # Nếu có biến nhân tạo từ ràng buộc = thì dùng pha 1 cổ điển (nhánh artificial_vars)
+        # Nếu chỉ có b_i < 0 (không có =) thì dùng pha 1 bổ trợ x0
+        self.need_aux_phase1 = any(b < 0 for b in self.initial_rhs) and not self.artificial_vars
     # ---------- dictionary operations ----------
     @staticmethod
     def _canonicalize(
@@ -573,13 +582,13 @@ class SimplexEngine:
 
 
     def _phase2_start(self, snapshot: Snapshot, strip_vars: Optional[List[int]] = None) -> Tuple[List[int], List[Dict[int, Fraction]], List[Fraction], Fraction, Dict[int, Fraction]]:
-        # Rebuild the phase-2 objective from the current basis.
         basis = snapshot.basis[:]
         rows = [deepcopy(r) for r in snapshot.rows]
         rhs = snapshot.rhs[:]
 
-        if strip_vars:
-            strip_set = set(strip_vars)
+        # Loại bỏ biến phụ/nhân tạo khỏi tất cả các hàng của từ vựng
+        strip_set = set(strip_vars or []) | set(self.artificial_vars)
+        if strip_set:
             for row in rows:
                 for v in strip_set:
                     row.pop(v, None)
@@ -593,6 +602,7 @@ class SimplexEngine:
         basis = self.initial_basis[:]
         rows = [deepcopy(r) for r in self.initial_rows]
         rhs = self.initial_rhs[:]
+        # Pha 1: min Σ a_k (tổng các biến nhân tạo)
         raw_obj = {a: Fraction(1) for a in self.artificial_vars}
         const, obj = self._canonicalize(basis, rows, rhs, raw_obj, Fraction(0))
         return basis, rows, rhs, const, obj
@@ -634,7 +644,8 @@ class SimplexEngine:
                 )
 
             basis2, rows2, rhs2, obj_const2, obj2 = self._phase2_start(phase1.final_snapshot, strip_vars=[aux_idx])
-            phase2 = self._solve_once(used, 2, basis2, rows2, rhs2, obj_const2, obj2, "z", self.artificial_vars)
+            obj_lbl2 = "z'" if self.problem.objective_sense == "max" else "z"
+            phase2 = self._solve_once(used, 2, basis2, rows2, rhs2, obj_const2, obj2, obj_lbl2, self.artificial_vars)
             return self._assemble_report(
                 used, phase1, phase2, notes, phase1_infeasible=False,
                 phase1_bland=phase1_bland, phase2_trace=phase2
@@ -672,17 +683,19 @@ class SimplexEngine:
                 )
 
             basis2, rows2, rhs2, obj_const2, obj2 = self._phase2_start(phase1.final_snapshot)
-            phase2 = self._solve_once(used, 2, basis2, rows2, rhs2, obj_const2, obj2, "z", self.artificial_vars)
+            obj_lbl2 = "z'" if self.problem.objective_sense == "max" else "z"
+            phase2 = self._solve_once(used, 2, basis2, rows2, rhs2, obj_const2, obj2, obj_lbl2, self.artificial_vars)
             return self._assemble_report(
                 used, phase1, phase2, notes, phase1_infeasible=False,
                 phase1_bland=phase1_bland, phase2_trace=phase2
             )
 
         # No artificials => phase 2 only.
-        basis, rows, rhs, obj_const, obj = self._phase2_start(self._state(self.initial_basis, self.initial_rows, self.initial_rhs, Fraction(0), {}, 2, "z", self.artificial_vars))
-        dantzig = self._solve_once("dantzig", 2, basis, rows, rhs, obj_const, obj, "z", self.artificial_vars)
+        obj_lbl = "z'" if self.problem.objective_sense == "max" else "z"
+        basis, rows, rhs, obj_const, obj = self._phase2_start(self._state(self.initial_basis, self.initial_rows, self.initial_rhs, Fraction(0), {}, 2, obj_lbl, self.artificial_vars))
+        dantzig = self._solve_once("dantzig", 2, basis, rows, rhs, obj_const, obj, obj_lbl, self.artificial_vars)
         if dantzig.status == "cycle":
-            bland = self._solve_once("bland", 2, basis, rows, rhs, obj_const, obj, "z", self.artificial_vars)
+            bland = self._solve_once("bland", 2, basis, rows, rhs, obj_const, obj, obj_lbl, self.artificial_vars)
             return self._assemble_report(
                 "bland", dantzig, bland, notes, phase1_infeasible=False,
                 phase1_bland=None, phase2_trace=bland
@@ -747,15 +760,35 @@ class SimplexEngine:
             obj_orig = obj_std
 
         # Phát hiện vô số nghiệm:
-        # Một biến không cơ sở có hệ số 0 trên hàng mục tiêu và còn có thể thay đổi một chút
-        # mà không phá tính khả thi thì sẽ sinh ra vô số nghiệm tối ưu.
+        # Biến không cơ sở có hệ số 0 trên hàm mục tiêu VÀ có thể tăng mà không phá khả thi.
+        # Loại bỏ: biến nhân tạo, và cặp (a_i, b_i) của biến tự do (vì a_i - b_i = const nên
+        # cả hai đều có c=0 nhưng thực ra nghiệm là duy nhất theo biến gốc x_i).
+        art_set = set(self.artificial_vars)
+
+        # Xây dựng tập các biến "đối ngẫu" của biến tự do:
+        # Nếu x_i tự do → x_i = a_j - b_j; nếu a_j hoặc b_j đều ở ngoài cơ sở với c=0
+        # thì không thực sự tự do vì chúng ràng buộc nhau.
+        free_var_pairs: set[int] = set()
+        for mapping in self.variable_mapping:
+            if len(mapping) == 2:
+                j1, j2 = mapping[0][0], mapping[1][0]
+                free_var_pairs.add(j1)
+                free_var_pairs.add(j2)
+
         basis_set = set(snapshot.basis)
         multiple = False
         free_vars: List[int] = []
         for j in range(len(self.std_names)):
             if j in basis_set:
                 continue
+            if j in art_set:
+                continue
             if snapshot.obj.get(j, Fraction(0)) != 0:
+                continue
+            # Nếu j là một trong cặp biến tự do, chỉ thêm nếu đối ngẫu của nó cũng ngoài cơ sở
+            # → thực sự tham số tự do (biến gốc x_i = a_j - b_j không cố định)
+            # Để đơn giản: bỏ qua cả cặp, tức không coi là vô số nghiệm do cặp tự do
+            if j in free_var_pairs:
                 continue
 
             col = [row.get(j, Fraction(0)) for row in snapshot.rows]
@@ -769,5 +802,3 @@ class SimplexEngine:
                 free_vars.append(j)
 
         return std_values, orig_values, obj_std, obj_orig, multiple, free_vars
-
-
