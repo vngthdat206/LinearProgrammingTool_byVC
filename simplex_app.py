@@ -1334,7 +1334,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 nonneg_vars.append(f"a{i+1}")
                 nonneg_vars.append(f"b{i+1}")
         nonneg_vars += slack_names + [nm for nm in engine.std_names if nm in engine.all_names and nm.startswith("x") and nm not in {f"x{i+1}" for i in range(n_orig)}]
-        # Thêm biến nhân tạo
+        # Thêm biến độ nhiễu
         art_names_list = [engine.all_names[a] for a in engine.artificial_vars]
         nonneg_vars += art_names_list
         # Deduplicate giữ thứ tự
@@ -1587,14 +1587,14 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 self.output.insert(tk.END,"\nKẾT LUẬN\n  Vô nghiệm.\n","warn"); return
 
         elif engine.artificial_vars:
-            # ── Pha 1 cổ điển: biến nhân tạo từ ràng buộc = ────────────
+            # ── Pha 1 cổ điển: biến độ nhiễu từ ràng buộc = ────────────
             self.output.insert(tk.END,
                 "\n=============================\n"
-                " Pha 1: Loại biến nhân tạo\n"
+                " Pha 1: Loại biến độ nhiễu\n"
                 "=============================\n","h2")
             art_names = [engine.all_names[a] for a in engine.artificial_vars]
             self.output.insert(tk.END,
-                f"  Ràng buộc đẳng thức → thêm biến nhân tạo: {', '.join(art_names)}\n"
+                f"  Ràng buộc đẳng thức → thêm biến độ nhiễu: {', '.join(art_names)}\n"
                 f"  Bài toán bổ trợ: min {' + '.join(art_names)}\n\n","note")
             self._render_trace("Pha 1",report.dantzig)
             if report.phase1_bland is not None and report.phase1_bland is not report.dantzig:
@@ -1605,7 +1605,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
                 self.output.insert(tk.END,
                     f"  Vô nghiệm: Pha 1 kết thúc với giá trị hàm bổ trợ > 0\n"
-                    f"  → tồn tại biến nhân tạo không thể đưa ra khỏi cơ sở.\n","warn")
+                    f"  → tồn tại biến độ nhiễu không thể đưa ra khỏi cơ sở.\n","warn")
                 return
             if report.phase2_trace is not None:
                 self.output.insert(tk.END,
@@ -1613,7 +1613,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                     " Chuyển sang Pha 2\n"
                     "────────────────────────────────────\n","h2")
                 self.output.insert(tk.END,
-                    f"  min bổ trợ = 0, các biến nhân tạo ({', '.join(art_names)}) = 0 → loại khỏi từ vựng.\n"
+                    f"  min bổ trợ = 0, các biến độ nhiễu ({', '.join(art_names)}) = 0 → loại khỏi từ vựng.\n"
                     f"  Thay hàm mục tiêu gốc vào từ vựng hiện tại.\n\n","note")
                 self.output.insert(tk.END,
                     "\n============================\n"
