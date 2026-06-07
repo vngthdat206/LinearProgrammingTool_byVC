@@ -1586,7 +1586,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             report=engine.solve_full()
             self.last_problem=prob; self.last_report=report
             self._render_result(report)
-            self._set_solution_available(report.status=="optimal")
+            self._set_solution_available(report.status in ("optimal", "unbounded", "infeasible", "cycle"))
             self.status_var.set(f"Đã giải xong: {report.status}.")
         except Exception as exc:
             self.last_report=None; self._set_solution_available(False)
