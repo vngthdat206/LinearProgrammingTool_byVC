@@ -385,7 +385,7 @@ def _standardization_html(engine, mode: str) -> str:
         if s == "≤":
             # Thêm biến bù s_i
             slack_nm = f"s_{{{i+1}}}"
-            std_lhs = f"{lhs_str} + {slack_nm}"
+            std_lhs = f"{lhs_str}"
             note = f"(thêm biến bù $+{slack_nm}$)"
         elif s == "≥":
             # Trừ biến bù, thêm biến nhân tạo nếu cần
