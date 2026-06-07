@@ -124,30 +124,30 @@ class SimplexEngine:
                     f'  RB{i + 1}: do dấu của ràng buộc đã là "≥", nên nhân cả hai vế với (-1) để đưa về "≤".'
                 )
             elif sense == "=":
-                # Ràng buộc đẳng thức: thêm biến nhân tạo a_k >= 0 vào vế trái
-                # để có cơ sở khả thi ban đầu. a_k sẽ được đẩy ra khỏi cơ sở ở pha 1.
-                # Chuyển "= b" thành "<= b" với hệ số a_k = +1 trong ràng buộc
-                # (tức trong từ vựng w_i = b - ... - (+1)*a_k → a_k xuất hiện với hệ số -1 trong row dict)
-                art_name = f"x{next_slack}"
-                next_slack += 1
-                art_idx = len(self.std_names)
-                self.std_names.append(art_name)
-                self.std_obj_coeffs.append(Fraction(0))   # hệ số 0 trong objective gốc
-                row.append(Fraction(1))                    # hệ số +1 trong A (ràng buộc Ax <= b)
-                self.artificial_vars.append(art_idx)      # đánh dấu là biến nhân tạo
                 self.standardization_lines.append(
-                    f'  RB{i + 1}: ràng buộc đẳng thức "=", thêm biến nhân tạo {art_name} ≥ 0.'
+                    f'  RB{i + 1}: ràng buộc đẳng thức "=" tách thành hai ràng buộc "≤".'
                 )
-                self.standardization_lines.append(f"  ---> RB{i + 1}:  {fmt_expr(row, self.std_names)} ≤ {fmt_num(rhs, 'Phân số')}")
-                self.std_constraints.append(row)
+
+                # RB1: a·x ≤ b
+                self.std_constraints.append(row[:])
                 self.std_senses.append("≤")
                 self.std_rhs.append(rhs)
-                continue
-            elif sense == "≤":
+                
                 self.standardization_lines.append(
-                    f'  RB{i + 1}: giữ nguyên, do dấu của ràng buộc đã là "≤"'
+                    f"  ---> RB{i + 1}a: {fmt_expr(row, self.std_names)} ≤ {fmt_num(rhs, 'Phân số')}"
                 )
-            else:
+
+                # RB2: -a·x ≤ -b
+                neg_row = [-a for a in row]
+                neg_rhs = -rhs
+                self.std_constraints.append(neg_row)
+                self.std_senses.append("≤")
+                self.std_rhs.append(neg_rhs)
+                self.standardization_lines.append(
+                    f"  ---> RB{i + 1}b: {fmt_expr(neg_row, self.std_names)} ≤ {fmt_num(neg_rhs, 'Phân số')}"
+                )     
+                continue     
+            elif sense != "≤":
                 raise ValueError(f"Dấu ràng buộc không hợp lệ: {sense}")
 
             self.standardization_lines.append(f"  ---> RB{i + 1}:  {fmt_expr(row, self.std_names)} ≤ {fmt_num(rhs, 'Phân số')}")
@@ -155,7 +155,8 @@ class SimplexEngine:
             self.std_senses.append(sense)
             self.std_rhs.append(rhs)
 
-        self.standardization_lines.append("")
+            self.standardization_lines.append("")
+
     def _build_dictionary(self) -> None:
         self.all_names = self.std_names[:]
         next_slack = 1
@@ -164,13 +165,15 @@ class SimplexEngine:
         rhs: List[Fraction] = []
 
         for coeffs, sense, b in zip(self.std_constraints, self.std_senses, self.std_rhs):
-            if sense != "≤":
-                raise ValueError(f"Chỉ nhận ràng buộc dạng ≤ sau chuẩn hóa, nhận được: {sense}")
             row = {j: -a for j, a in enumerate(coeffs) if a != 0}
-            sidx = len(self.all_names)
-            self.all_names.append(f"w{next_slack}")
-            next_slack += 1
-            basis.append(sidx)
+            if sense == "≤":
+                # Thêm biến bù w_k; w_k là cơ sở ban đầu
+                sidx = len(self.all_names)
+                self.all_names.append(f"w{next_slack}")
+                next_slack += 1
+                basis.append(sidx)
+            else:
+                raise ValueError(f"Sense không hợp lệ sau chuẩn hóa: {sense}")
             rows.append(row)
             rhs.append(b)
 
@@ -179,9 +182,12 @@ class SimplexEngine:
         self.initial_rhs = rhs
         # artificial_vars đã được set trong _transform_constraints (ràng buộc =)
         # need_aux_phase1: cần pha 1 bổ trợ (x0) khi có b_i < 0
-        # Nếu có biến nhân tạo từ ràng buộc = thì dùng pha 1 cổ điển (nhánh artificial_vars)
+        # Nếu có biến độ nhiễu từ ràng buộc = thì dùng pha 1 cổ điển (nhánh artificial_vars)
         # Nếu chỉ có b_i < 0 (không có =) thì dùng pha 1 bổ trợ x0
-        self.need_aux_phase1 = any(b < 0 for b in self.initial_rhs) and not self.artificial_vars
+        # need_aux_phase1: True khi có b_i < 0 sau chuẩn hóa (cần đưa x0 vào trước).
+        # Không phân biệt có/không có artificial_vars — x0 bổ trợ xử lý mọi b<0,
+        # biến độ nhiễu (ràng buộc =) vẫn nằm trong từ vựng và được loại bởi pha 1.
+        self.need_aux_phase1 = any(b < 0 for b in self.initial_rhs)
     # ---------- dictionary operations ----------
     @staticmethod
     def _canonicalize(
@@ -602,7 +608,7 @@ class SimplexEngine:
         basis = self.initial_basis[:]
         rows = [deepcopy(r) for r in self.initial_rows]
         rhs = self.initial_rhs[:]
-        # Pha 1: min Σ a_k (tổng các biến nhân tạo)
+        # Pha 1: min Σ a_k (tổng các biến độ nhiễu)
         raw_obj = {a: Fraction(1) for a in self.artificial_vars}
         const, obj = self._canonicalize(basis, rows, rhs, raw_obj, Fraction(0))
         return basis, rows, rhs, const, obj
@@ -634,7 +640,8 @@ class SimplexEngine:
                 )
 
             # x0 không còn nằm trong cơ sở và giá trị mục tiêu pha 1 bằng 0 => sang pha 2
-            aux_idx_in_basis = aux_idx in phase1.final_snapshot.basis
+            snap1 = phase1.final_snapshot
+            aux_idx_in_basis = aux_idx in snap1.basis
             if phase1.final_snapshot.obj_const != 0 or aux_idx_in_basis:
                 phase1.infeasible = True
                 phase1.status = "infeasible"
@@ -642,6 +649,44 @@ class SimplexEngine:
                     used, phase1, None, notes, phase1_infeasible=True,
                     phase1_bland=phase1_bland, phase2_trace=None
                 )
+
+            # Nếu còn biến độ nhiễu (từ ràng buộc =), tiếp tục pha 1 cổ điển
+            # để đẩy chúng ra khỏi cơ sở (loại x0 trước khi chạy)
+            if self.artificial_vars:
+                # Xây dựng từ vựng trung gian: loại x0 khỏi các hàng
+                basis1b, rows1b, rhs1b, const1b, obj1b = self._phase2_start(snap1, strip_vars=[aux_idx])
+                # Objective pha 1b: min Σ art_k (chỉ các biến độ nhiễu còn lại)
+                art_set = set(self.artificial_vars)
+                raw_obj1b = {a: Fraction(1) for a in self.artificial_vars}
+                const1b, obj1b = self._canonicalize(basis1b, rows1b, rhs1b, raw_obj1b, Fraction(0))
+                phase1b = self._solve_once(used, 1, basis1b, rows1b, rhs1b, const1b, obj1b, "δ", self.artificial_vars)
+                # Ghép steps
+                for st in phase1b.steps:
+                    st.iteration += len(phase1.steps) + 1
+                combined_steps = phase1.steps + phase1b.steps
+                phase1 = SolveTrace(
+                    status=phase1b.status,
+                    steps=combined_steps,
+                    final_snapshot=phase1b.final_snapshot,
+                    degenerate_steps=phase1.degenerate_steps + phase1b.degenerate_steps,
+                    cycle_detected=phase1b.cycle_detected,
+                    infeasible=phase1b.infeasible,
+                    unbounded=phase1b.unbounded,
+                    multiple_optimal=phase1b.multiple_optimal,
+                    phase1_infeasible=phase1b.phase1_infeasible,
+                )
+                snap1 = phase1.final_snapshot
+                # Kiểm tra: biến độ nhiễu còn trong cơ sở với rhs > 0 → infeasible
+                if snap1 is None or snap1.obj_const != 0 or any(
+                    snap1.rhs[i] != 0
+                    for i, b in enumerate(snap1.basis) if b in art_set
+                ):
+                    phase1.infeasible = True
+                    phase1.status = "infeasible"
+                    return self._assemble_report(
+                        used, phase1, None, notes, phase1_infeasible=True,
+                        phase1_bland=phase1_bland, phase2_trace=None
+                    )
 
             basis2, rows2, rhs2, obj_const2, obj2 = self._phase2_start(phase1.final_snapshot, strip_vars=[aux_idx])
             obj_lbl2 = "z'" if self.problem.objective_sense == "max" else "z"
@@ -761,7 +806,7 @@ class SimplexEngine:
 
         # Phát hiện vô số nghiệm:
         # Biến không cơ sở có hệ số 0 trên hàm mục tiêu VÀ có thể tăng mà không phá khả thi.
-        # Loại bỏ: biến nhân tạo, và cặp (a_i, b_i) của biến tự do (vì a_i - b_i = const nên
+        # Loại bỏ: biến độ nhiễu, và cặp (a_i, b_i) của biến tự do (vì a_i - b_i = const nên
         # cả hai đều có c=0 nhưng thực ra nghiệm là duy nhất theo biến gốc x_i).
         art_set = set(self.artificial_vars)
 

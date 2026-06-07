@@ -20,6 +20,8 @@ from typing import Dict, List, Optional, Tuple
 from models import PivotStep, Snapshot, SolveReport, SolveTrace
 from utils import fmt_num
 
+import html
+
 
 # ---------------------------------------------------------------------------
 # Helpers: chuyển Fraction → LaTeX
@@ -346,7 +348,14 @@ def _standardization_html(engine, mode: str) -> str:
         parts.append("<p>📌 <b>Bước 1: Biến số</b> — tất cả $x_i \\geq 0$, không cần thay thế.</p>")
 
     # ── Bước 2: Chuẩn hóa ràng buộc ──────────────────────────────────────
-    parts.append("<p>📌 <b>Bước 2: Chuẩn hóa ràng buộc</b> (thêm biến bù $w_i$)</p>")
+    parts.append("<p>📌 <b>Bước 2: Chuẩn hóa ràng buộc</b></p>")
+
+    parts.append("<pre>")
+
+    for line in engine.standardization_lines:
+        parts.append(line)
+
+    parts.append("</pre>")
 
     std_names_list = getattr(engine, "std_names", None)
     all_names_list = getattr(engine, "all_names", None)
@@ -366,13 +375,13 @@ def _standardization_html(engine, mode: str) -> str:
     table_rows = []
     w_count = 0
 
-    for i, cons in enumerate(prob.constraints):
-        s = cons["sense"]
-        rhs_val = Fraction(cons["rhs"])
+    for i, (std_row, s, rhs_val) in enumerate(
+        zip(engine.std_constraints, engine.std_senses, engine.std_rhs),
+        start=1
+    ):
         s_tex = {"≤": "\\leq", "≥": "\\geq", "=": "="}.get(s, s)
         rhs_tex = _frac(rhs_val, mode)
 
-        std_row = engine.std_constraints[i] if hasattr(engine, "std_constraints") and i < len(engine.std_constraints) else []
         lhs_str = lhs_tex(std_row)
 
         if s == "≤":
@@ -390,23 +399,9 @@ def _standardization_html(engine, mode: str) -> str:
             std_rb  = f"${neg_lhs} + {slack_nm} = {neg_rhs}$"
             note    = f"nhân $(-1)$: $\\geq \\to \\leq$, thêm biến bù $+{slack_nm}$"
         else:
-            art_col = None
-            if std_names_list and len(std_row) > len(std_names_list):
-                art_col = len(std_row) - 1
-            if art_col is not None and std_names_list and art_col < len(std_names_list):
-                art_nm_tex = _tex_var(std_names_list[art_col])
-            else:
-                for aidx in engine.artificial_vars:
-                    if aidx < len(engine.all_names):
-                        art_nm_tex = _tex_var(engine.all_names[aidx])
-                        break
-                else:
-                    art_nm_tex = f"a_{{{i+1}}}"
-            w_count += 1
-            slack_nm = f"w_{{{w_count}}}"
             orig_rb = f"${lhs_str} = {rhs_tex}$"
-            std_rb  = f"${lhs_str} + {art_nm_tex} = {rhs_tex}$"
-            note    = f"thêm biến độ nhiễm $+{art_nm_tex}$; cơ sở $w_{{{w_count}}} = {art_nm_tex}$"
+            std_rb  = f"${lhs_str} = {rhs_tex}$"
+            note    = ""
 
         table_rows.append(
             f"<tr>"
