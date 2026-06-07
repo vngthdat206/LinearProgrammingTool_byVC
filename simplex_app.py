@@ -1284,13 +1284,13 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             return s[2:] if s.startswith("+ ") else s
         n_orig=len(engine.problem.var_signs)
         extra_x=[nm for nm in engine.std_names if nm.startswith("x") and nm not in {f"x{i+1}" for i in range(n_orig)}]
-        lines=["========================","*Chuẩn hóa bài toán gốc:","========================","","_Chuẩn hóa ràng buộc dấu:"]
+        lines=["========================","*Chuẩn hóa bài toán gốc:","========================","","+ Chuẩn hóa ràng buộc dấu:"]
         for idx,sign in enumerate(engine.problem.var_signs):
             nm=f"x{idx+1}"
             if sign=="≥0": lines.append(f"        {nm} ≥ 0: giữ nguyên {nm} ≥ 0")
             elif sign=="≤0": lines.append(f"        {nm} tự do âm: đặt {nm} = -y{idx+1}, với y{idx+1} ≥ 0")
             else: lines.append(f"        {nm} tự do: đặt {nm} = a{idx+1} - b{idx+1}, với a{idx+1}, b{idx+1} ≥ 0")
-        lines+=["","_Chuẩn hóa ràng buộc đẳng thức, bất đẳng thức:"]
+        lines+=["","+ Chuẩn hóa ràng buộc đẳng thức, bất đẳng thức:"]
         sc=n_orig+1
         for i,cons in enumerate(engine.problem.constraints):
             s=cons["sense"]
@@ -1301,18 +1301,21 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 lines.append(f"    RB{i+1}: trừ thêm biến bù {snm} ≥ 0")
                 row=engine.std_constraints[i]; names=engine.std_names[:len(row)]
                 lines.append(f"    ---> RB{i+1}:  {expr(row,names)} ≤ {fmt_num(engine.std_rhs[i],mode)}")
-        lines+=["","_Các biến sau chuẩn hóa:"]
+        lines+=["","+ Các biến sau chuẩn hóa:"]
         for idx,sign in enumerate(engine.problem.var_signs):
             if sign=="≥0": lines.append(f"        x{idx+1} = x{idx+1}")
             elif sign=="≤0": lines.append(f"        x{idx+1} = -y{idx+1}")
             else: lines.append(f"        x{idx+1} = a{idx+1} - b{idx+1}")
         for nm in extra_x: lines.append(f"        {nm} = {nm}")
-        lines+=["","_Chuẩn hóa hàm mục tiêu:"]
-        if engine.problem.objective_sense=="min": lines.append("    Hàm min, giữ nguyên:")
-        else: lines.append("    Hàm max → đặt Z' = −Z, min Z' = −max Z:")
+        lines+=["","+ Chuẩn hóa hàm mục tiêu:"]
         obj_expr=expr(engine.std_obj_coeffs, engine.std_names)
-        lines.append(f"        min Z' = {obj_expr}")
         z_label = "Z'" if engine.problem.objective_sense == "max" else "Z"
+        if engine.problem.objective_sense=="min": 
+            lines.append("    Hàm min, giữ nguyên:")
+            lines.append(f"        min Z = {obj_expr}")
+        else: 
+            lines.append("    Hàm max → đặt Z' = −Z, min Z' = −max Z:")
+            lines.append(f"        min Z' = {obj_expr}")
         lines+=["","=========================",f"*Dạng chuẩn của bài toán:","=========================",f"    min {z_label} = {obj_expr}","    {"]
         for i,row in enumerate(engine.std_constraints):
             lines.append(f"      {expr(row,engine.std_names[:len(row)])} ≤ {fmt_num(engine.std_rhs[i],mode)}")
@@ -1541,8 +1544,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         self.output.insert(tk.END,self._format_standardization(engine)+"\n","mono")
 
         is_max = engine.problem.objective_sense == "max"
-        # Nhãn hàm mục tiêu trong từ vựng: z' nếu max (vì đã đổi dấu), z nếu min
-        obj_label = "z'" if is_max else "z"
 
         if self._has_aux_phase1(engine):
             # ── Pha 1: biến phụ x0 ──────────────────────────────────────
@@ -1629,7 +1630,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 " Không cần Pha 1\n"
                 "============================\n","h2")
             self.output.insert(tk.END,
-                "  Tất cả b_i ≥ 0 → cơ sở w₁, ..., wₘ là cơ sở khả thi ban đầu,\n"
+                "  Tất cả b_i ≥ 0 → cơ sở w_1, ..., w_m là cơ sở khả thi ban đầu,\n"
                 "  không cần thực hiện Pha 1.\n\n"
                 "============================\n"
                 " Giải bài toán\n"
@@ -1662,7 +1663,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             if is_max:
                 self.output.insert(tk.END,
                     f"  Bài toán có vô số nghiệm tối ưu.\n"
-                    f"  z* = max Z = −(min −Z) = −({fmt_num(obj_std,mode)}) = {fmt_num(obj_orig,mode)}\n","note")
+                    f"  z* = max Z = −(min Z') = −({fmt_num(obj_std,mode)}) = {fmt_num(obj_orig,mode)}\n")
             else:
                 self.output.insert(tk.END,
                     f"  Bài toán có vô số nghiệm tối ưu.\n"

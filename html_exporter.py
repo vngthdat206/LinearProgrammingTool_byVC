@@ -99,13 +99,19 @@ def _snapshot_table(
     entering_name: Optional[str] = None,
     pivot_row: Optional[int] = None,
 ) -> str:
-    """Tạo <table> HTML cho một snapshot (bảng từ vựng đơn hình)."""
+    """Tạo <table> HTML cho một snapshot (bảng từ vựng đơn hình).
+    Chỉ hiển thị cột của biến phi cơ sở (biến cơ sở đã nằm ở cột nhãn, không cần cột riêng).
+    """
     names = snapshot.all_names
-    n = len(names)
+    basis_set = set(snapshot.basis)
 
-    # Header: tên biến phi cơ sở (hiển thị tên biến thay vì chỉ số)
+    # Chỉ lấy cột phi cơ sở (nonbasic columns)
+    nonbasic_cols = [j for j in range(len(names)) if j not in basis_set]
+
+    # Header
     header_cells = ["<th class='row-label'></th>", "<th class='rhs-col'>Hằng số</th>"]
-    for j, nm in enumerate(names):
+    for j in nonbasic_cols:
+        nm = names[j]
         css = "pivot-col-head" if nm == entering_name else ""
         header_cells.append(f"<th class='{css}'>${_tex_var(nm)}$</th>")
     thead = f"<thead><tr>{''.join(header_cells)}</tr></thead>"
@@ -113,13 +119,21 @@ def _snapshot_table(
     rows_html: List[str] = []
 
     # Hàng mục tiêu
-    obj_cells = [f"<td class='row-label'>$\\mathbf{{{_tex_var(snapshot.objective_label)}}}$</td>"]
-    obj_cells.append(f"<td class='rhs-cell'>$= {_frac(snapshot.obj_const, mode)}$</td>")
-    for j, nm in enumerate(names):
+    obj_label_tex = f"\\mathbf{{{_tex_var(snapshot.objective_label)}}}"
+    obj_cells = [f"<td class='row-label'>${obj_label_tex}$</td>"]
+    # Hằng số: ẩn nếu = 0 và có hạng tử khác (từ vựng xuất phát)
+    obj_const_str = _frac(snapshot.obj_const, mode)
+    has_obj_terms = any(snapshot.obj.get(j, Fraction(0)) != 0 for j in nonbasic_cols)
+    if snapshot.obj_const == 0 and has_obj_terms:
+        obj_cells.append(f"<td class='rhs-cell' style='color:#94A3B8'>$= 0$</td>")
+    else:
+        obj_cells.append(f"<td class='rhs-cell'>$= {obj_const_str}$</td>")
+    for j in nonbasic_cols:
+        nm = names[j]
         c = snapshot.obj.get(j, Fraction(0))
         css = "pivot-col" if nm == entering_name else ""
-        obj_cells.append(f"<td class='{css}'>${_frac(c, mode)}$</td>" if c != 0
-                         else f"<td class='{css}'>$0$</td>")
+        cell_val = f"$+\\,{_frac(c, mode)}$" if c > 0 else (f"$-\\,{_frac(-c, mode)}$" if c < 0 else "$0$")
+        obj_cells.append(f"<td class='{css}'>{cell_val}</td>")
     rows_html.append(f"<tr class='obj-row'>{''.join(obj_cells)}</tr>")
 
     # Hàng cơ sở
@@ -129,7 +143,8 @@ def _snapshot_table(
         row_css = "pivot-row" if is_pivot_row else ""
         cells = [f"<td class='row-label'>$\\mathbf{{{_tex_var(b_name)}}}$</td>"]
         cells.append(f"<td class='rhs-cell'>$= {_frac(snapshot.rhs[i], mode)}$</td>")
-        for j, nm in enumerate(names):
+        for j in nonbasic_cols:
+            nm = names[j]
             c = snapshot.rows[i].get(j, Fraction(0))
             cell_css = ""
             if nm == entering_name and is_pivot_row:
@@ -138,8 +153,8 @@ def _snapshot_table(
                 cell_css = "pivot-col"
             elif is_pivot_row:
                 cell_css = "pivot-row"
-            cells.append(f"<td class='{cell_css}'>${_frac(c, mode)}$</td>" if c != 0
-                         else f"<td class='{cell_css}'>$0$</td>")
+            cell_val = f"$+\\,{_frac(c, mode)}$" if c > 0 else (f"$-\\,{_frac(-c, mode)}$" if c < 0 else "$0$")
+            cells.append(f"<td class='{cell_css}'>{cell_val}</td>")
         rows_html.append(f"<tr class='{row_css}'>{''.join(cells)}</tr>")
 
     return f"""<div class="dict-table-wrap">
@@ -302,123 +317,179 @@ def _problem_html(engine, mode: str) -> str:
 
 
 def _standardization_html(engine, mode: str) -> str:
-    """Render các bước chuẩn hóa dưới dạng LaTeX đẹp."""
+    """Render các bước chuẩn hóa dưới dạng LaTeX đẹp theo thứ tự: Biến -> Ràng buộc -> Mục tiêu."""
     prob = engine.problem
     n = len(prob.obj_coeffs)
-    names_orig = [f"x_{{{i+1}}}" for i in range(n)]
-
-    def expr_std(coeffs):
-        """Build LaTeX expression từ list/dict hệ số."""
-        parts = []
-        items = list(enumerate(coeffs)) if not isinstance(coeffs, dict) else coeffs.items()
-        for j, c in items:
-            if c == 0:
-                continue
-            abs_c = abs(c)
-            sign = "+" if c > 0 else "-"
-            nm = engine.all_names[j] if hasattr(engine, "all_names") and j < len(engine.all_names) else f"x_{{{j+1}}}"
-            tex_nm = _tex_var(nm)
-            if abs_c == 1:
-                body = f"\\,{tex_nm}"
-            else:
-                body = f"\\,{_frac(abs_c, mode)}{tex_nm}"
-            parts.append(f"{sign}{body}")
-        if not parts:
-            return "0"
-        return " ".join(parts).lstrip("+").strip()
-
     parts = []
 
-    # ── Bước 1: Chuyển max → min nếu cần ──────────────────────────────────
-    if prob.objective_sense == "max":
-        obj_orig_expr = expr_std(prob.obj_coeffs)
-        neg_coeffs = [-c for c in prob.obj_coeffs]
-        obj_min_expr = expr_std(neg_coeffs)
-        parts.append("<p>📌 <b>Bước 1: Chuyển bài toán max → min</b></p>")
-        parts.append(f"<p>$$\\max Z = {obj_orig_expr} \\;\\equiv\\; \\min(-Z) = {obj_min_expr}$$</p>")
-    else:
-        parts.append("<p>📌 <b>Bước 1: Dạng mục tiêu</b></p>")
-        obj_expr = expr_std(prob.obj_coeffs)
-        parts.append(f"<p>$$\\min Z = {obj_expr}$$</p>")
-
-    # ── Bước 2: Xử lý biến dấu âm / tự do ────────────────────────────────
+    # ── Bước 1: Thay thế biến không chuẩn ────────────────────────────────
     sub_notes = []
     for i, sg in enumerate(prob.var_signs):
-        nm = f"{{{i+1}}}"
+        idx = f"{{{i+1}}}"
+        nm  = f"x_{idx}"
         if sg == "≤0":
-            sub_notes.append(f"$\\quad x_{nm} \\leq 0$: đặt $y_{nm} = -x_{nm} \\geq 0$")
+            y_nm = f"y_{idx}"
+            sub_notes.append(f"$\\quad {nm} \\leq 0$: đặt ${y_nm} = -{nm} \\geq 0$")
         elif sg == "tự do":
-            sub_notes.append(f"$\\quad x_{nm}$ tự do: đặt $x_{nm} = a_{nm} - b_{nm}$, "
-                             f"$\\;a_{nm},\\, b_{nm} \\geq 0$")
+            a_nm = f"a_{idx}"
+            b_nm = f"b_{idx}"
+            sub_notes.append(
+                f"$\\quad {nm}$ tự do: đặt ${nm} = {a_nm} - {b_nm}$, "
+                f"$\\;{a_nm},\\, {b_nm} \\geq 0$"
+            )
+            
     if sub_notes:
-        parts.append("<p>📌 <b>Bước 2: Thay thế biến không chuẩn</b></p>")
+        parts.append("<p>📌 <b>Bước 1: Thay thế biến không chuẩn</b></p>")
         for note in sub_notes:
             parts.append(f"<p>{note}</p>")
     else:
-        parts.append("<p>📌 <b>Bước 2: Biến số</b> — tất cả $x_i \\geq 0$, không cần thay thế.</p>")
+        parts.append("<p>📌 <b>Bước 1: Biến số</b> — tất cả $x_i \\geq 0$, không cần thay thế.</p>")
 
-    # ── Bước 3: Chuẩn hóa ràng buộc (thêm biến bù / nhân tạo) ────────────
-    parts.append("<p>📌 <b>Bước 3: Chuẩn hóa ràng buộc</b></p>")
-    con_items = []
-    # Lấy tên biến chuẩn từ engine nếu có
-    std_names = getattr(engine, "all_names", None)
+    # ── Bước 2: Chuẩn hóa ràng buộc ──────────────────────────────────────
+    parts.append("<p>📌 <b>Bước 2: Chuẩn hóa ràng buộc</b> (thêm biến bù $w_i$)</p>")
 
-    for i, cons in enumerate(prob.constraints):
-        s = cons["sense"]
-        lhs_coeffs = cons["coeffs"]
-        rhs_val = Fraction(cons["rhs"])
+    std_names_list = getattr(engine, "std_names", None)
+    all_names_list = getattr(engine, "all_names", None)
 
-        # Build LHS từ biến gốc
-        lhs_parts = []
-        for j, c in enumerate(lhs_coeffs):
+    def lhs_tex(row_coeffs_std):
+        ps = []
+        for j, c in enumerate(row_coeffs_std):
             if c == 0:
                 continue
             abs_c = abs(c)
             sign = "+" if c > 0 else "-"
-            nm = names_orig[j]
-            body = f"\\,{nm}" if abs_c == 1 else f"\\,{_frac(abs_c, mode)}{nm}"
-            lhs_parts.append(f"{sign}{body}")
-        lhs_str = " ".join(lhs_parts).lstrip("+").strip() or "0"
-        rhs_str = _frac(rhs_val, mode)
+            nm_tex = _tex_var(std_names_list[j]) if std_names_list and j < len(std_names_list) else f"x_{{{j+1}}}"
+            body = f"\\,{nm_tex}" if abs_c == 1 else f"\\,{_frac(abs_c, mode)}{nm_tex}"
+            ps.append(f"{sign}{body}")
+        return " ".join(ps).lstrip("+").strip() or "0"
+
+    table_rows = []
+    w_count = 0
+
+    for i, cons in enumerate(prob.constraints):
+        s = cons["sense"]
+        rhs_val = Fraction(cons["rhs"])
         s_tex = {"≤": "\\leq", "≥": "\\geq", "=": "="}.get(s, s)
+        rhs_tex = _frac(rhs_val, mode)
+
+        std_row = engine.std_constraints[i] if hasattr(engine, "std_constraints") and i < len(engine.std_constraints) else []
+        lhs_str = lhs_tex(std_row)
 
         if s == "≤":
-            # Thêm biến bù s_i
-            slack_nm = f"s_{{{i+1}}}"
-            std_lhs = f"{lhs_str}"
-            note = f"(thêm biến bù $+{slack_nm}$)"
+            w_count += 1
+            slack_nm = f"w_{{{w_count}}}"
+            orig_rb = f"${lhs_str} {s_tex} {rhs_tex}$"
+            std_rb  = f"${lhs_str} + {slack_nm} = {rhs_tex}$"
+            note    = f"thêm biến bù $+{slack_nm}$"
         elif s == "≥":
-            # Trừ biến bù, thêm biến nhân tạo nếu cần
-            slack_nm = f"s_{{{i+1}}}"
-            art_nm   = f"a_{{{i+1}}}"
-            std_lhs = f"{lhs_str} - {slack_nm} + {art_nm}"
-            note = f"(trừ biến bù $-{slack_nm}$, thêm biến nhân tạo $+{art_nm}$)"
-        else:  # =
-            art_nm = f"a_{{{i+1}}}"
-            std_lhs = f"{lhs_str} + {art_nm}"
-            note = f"(thêm biến nhân tạo $+{art_nm}$)"
+            w_count += 1
+            slack_nm = f"w_{{{w_count}}}"
+            neg_lhs = lhs_tex([-c for c in std_row])
+            neg_rhs = _frac(-rhs_val, mode)
+            orig_rb = f"${lhs_str} {s_tex} {rhs_tex}$"
+            std_rb  = f"${neg_lhs} + {slack_nm} = {neg_rhs}$"
+            note    = f"nhân $(-1)$: $\\geq \\to \\leq$, thêm biến bù $+{slack_nm}$"
+        else:
+            art_col = None
+            if std_names_list and len(std_row) > len(std_names_list):
+                art_col = len(std_row) - 1
+            if art_col is not None and std_names_list and art_col < len(std_names_list):
+                art_nm_tex = _tex_var(std_names_list[art_col])
+            else:
+                for aidx in engine.artificial_vars:
+                    if aidx < len(engine.all_names):
+                        art_nm_tex = _tex_var(engine.all_names[aidx])
+                        break
+                else:
+                    art_nm_tex = f"a_{{{i+1}}}"
+            w_count += 1
+            slack_nm = f"w_{{{w_count}}}"
+            orig_rb = f"${lhs_str} = {rhs_tex}$"
+            std_rb  = f"${lhs_str} + {art_nm_tex} = {rhs_tex}$"
+            note    = f"thêm biến nhân tạo $+{art_nm_tex}$; cơ sở $w_{{{w_count}}} = {art_nm_tex}$"
 
-        # Nếu RHS âm, nhân -1 cả hai vế trước khi thêm biến
-        if rhs_val < 0:
-            note = "(nhân $-1$ cả hai vế, " + note.lstrip("(")
-            rhs_str = _frac(-rhs_val, mode)
-            # flip dấu ràng buộc
-            std_lhs_orig = std_lhs
-            std_lhs = f"\\text{{...}}"  # placeholder, đủ để reader hiểu
-
-        con_items.append(
-            f"<li>Ràng buộc {i+1}: $\\quad {lhs_str} {s_tex} {_frac(Fraction(cons['rhs']), mode)}$"
-            f"<br>$\\Rightarrow\\quad {std_lhs} = {rhs_str}$ &nbsp; {note}</li>"
+        table_rows.append(
+            f"<tr>"
+            f"<td style='white-space:nowrap'><b>RB {i+1}</b></td>"
+            f"<td style='white-space:nowrap'>{orig_rb}</td>"
+            f"<td style='white-space:nowrap;color:#0F766E'>$\\Rightarrow$&nbsp;{std_rb}</td>"
+            f"<td style='color:#475569;font-size:0.88rem'>{note}</td>"
+            f"</tr>"
         )
 
-    parts.append(f"<ul>{''.join(con_items)}</ul>")
+    parts.append(
+        "<table style='border-collapse:collapse;width:100%;margin:8px 0 16px'>"
+        "<thead><tr style='background:#EFF6FF'>"
+        "<th style='padding:6px 12px;border:1px solid #CBD5E1;text-align:left'>RB</th>"
+        "<th style='padding:6px 12px;border:1px solid #CBD5E1'>Dạng gốc</th>"
+        "<th style='padding:6px 12px;border:1px solid #CBD5E1'>Dạng chuẩn</th>"
+        "<th style='padding:6px 12px;border:1px solid #CBD5E1'>Ghi chú</th>"
+        "</tr></thead>"
+        f"<tbody>{''.join(table_rows)}</tbody>"
+        "</table>"
+    )
+
+    # ── Bước 3: Hàm mục tiêu ─────────────────────────────────────────────
+    parts.append("<p>📌 <b>Bước 3: Dạng mục tiêu</b></p>")
+
+    def get_replaced_terms(coeffs, multiplier=1):
+        """Tạo danh sách (hệ số, tên biến) sau khi tính toán cả phép thay thế a_i, b_i, y_i"""
+        terms = []
+        for i, c in enumerate(coeffs):
+            if c == 0: continue
+            c_mult = c * multiplier
+            sg = prob.var_signs[i]
+            idx = i + 1
+            if sg == "≤0":
+                terms.append((-c_mult, f"y_{{{idx}}}"))
+            elif sg == "tự do":
+                terms.append((c_mult, f"a_{{{idx}}}"))
+                terms.append((-c_mult, f"b_{{{idx}}}"))
+            else:
+                terms.append((c_mult, f"x_{{{idx}}}"))
+        return terms
+
+    def format_terms(terms):
+        """Chuyển đổi danh sách tuples (hệ số, tên biến) thành biểu thức LaTeX"""
+        ps = []
+        for c, nm in terms:
+            if c == 0: continue
+            abs_c = abs(c)
+            sign = "+" if c > 0 else "-"
+            tex_nm = _tex_var(nm)
+            body = f"\\,{tex_nm}" if abs_c == 1 else f"\\,{_frac(abs_c, mode)}{tex_nm}"
+            ps.append(f"{sign}{body}")
+        return " ".join(ps).lstrip("+").strip() or "0"
+
+    # Lấy biểu thức gốc ban đầu (tất cả là x)
+    orig_terms = [(c, f"x_{{{i+1}}}") for i, c in enumerate(prob.obj_coeffs) if c != 0]
+    orig_expr = format_terms(orig_terms)
+
+    if prob.objective_sense == "max":
+        parts.append(f"<p>Hàm mục tiêu gốc: $$\\max Z = {orig_expr}$$</p>")
+        
+        # Nếu có thay thế biến ở Bước 1, in ra hàm mục tiêu sau khi thế
+        if sub_notes:
+            replaced_expr = format_terms(get_replaced_terms(prob.obj_coeffs, 1))
+            parts.append(f"<p>Thay thế biến vào hàm mục tiêu: $$\\max Z = {replaced_expr}$$</p>")
+            
+        # Biểu thức dạng chuẩn (min) - nhân hệ số với -1
+        min_expr = format_terms(get_replaced_terms(prob.obj_coeffs, -1))
+        parts.append(f"<p>Đặt $Z' = -Z$, chuyển về bài toán $\\min$:</p>")
+        parts.append(f"<p>$$\\min Z' = -\\max Z = {min_expr}$$</p>")
+    else:
+        parts.append(f"<p>Hàm mục tiêu gốc: $$\\min Z = {orig_expr}$$</p>")
+        
+        # Nếu có thay thế biến ở Bước 1, in ra hàm mục tiêu sau khi thế
+        if sub_notes:
+            replaced_expr = format_terms(get_replaced_terms(prob.obj_coeffs, 1))
+            parts.append(f"<p>Thay thế biến vào hàm mục tiêu: $$\\min Z = {replaced_expr}$$</p>")
 
     # ── Bảng biến chuẩn hóa cuối ──────────────────────────────────────────
-    if std_names:
-        std_tex = ",\\;".join(_tex_var(nm) for nm in std_names)
-        parts.append(f"<p>Các biến trong bài toán chuẩn hóa: $\\quad {std_tex}$</p>")
+    if std_names_list:
+        std_tex = ",\\;".join(_tex_var(nm) for nm in std_names_list)
+        parts.append(f"<p style='margin-top:20px'>Các biến trong bài toán chuẩn hóa: $\\quad {std_tex}$</p>")
 
-    # Fallback: nếu engine có standardization_lines, show thêm ở cuối
     raw_lines = getattr(engine, "standardization_lines", [])
     if raw_lines:
         parts.append("<details style='margin-top:8px'>"
@@ -439,18 +510,19 @@ def _standardization_html(engine, mode: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _conclusion_html(report: SolveReport, engine, mode: str) -> str:
-    from utils import fmt_num
     parts: List[str] = []
-
     status = report.status
+
     if status == "infeasible":
         parts.append("<div class='conclusion warn-box'><h3>KẾT LUẬN: Vô nghiệm</h3>"
                      "<p>Biến phụ $x_0$ còn trong cơ sở sau Pha 1 → Bài toán vô nghiệm.</p></div>")
         return "".join(parts)
 
-    if status in ("unbounded",):
-        parts.append("<div class='conclusion warn-box'><h3>KẾT LUẬN: Không giới nội</h3>"
-                     "<p>Không tìm được nghiệm hữu hạn tối ưu.</p></div>")
+    if status == "unbounded":
+        is_max = engine.problem.objective_sense == "max"
+        z_val = "$z_{\\max} = +\\infty$" if is_max else "$z_{\\min} = -\\infty$"
+        parts.append(f"<div class='conclusion warn-box'><h3>KẾT LUẬN: Không giới nội</h3>"
+                     f"<p>Có biến vào nhưng không có biến ra khả thi → {z_val}.</p></div>")
         return "".join(parts)
 
     if status == "cycle":
@@ -459,22 +531,32 @@ def _conclusion_html(report: SolveReport, engine, mode: str) -> str:
         return "".join(parts)
 
     # Optimal
-    obj_std = report.objective_std or Fraction(0)
+    obj_std  = report.objective_std  or Fraction(0)
     obj_orig = report.objective_orig or Fraction(0)
     method_label = report.used_method.upper()
+    is_max = engine.problem.objective_sense == "max"
 
     parts.append(f"<div class='conclusion success-box'>")
     parts.append(f"<h3>KẾT LUẬN: Tối ưu ({method_label})</h3>")
 
+    # Giá trị mục tiêu
+    if is_max:
+        parts.append(
+            f"<p>$z^* = \\max Z = -(\\min Z') = -({_frac(obj_std, mode)}) = {_frac(obj_orig, mode)}$</p>"
+        )
+    else:
+        parts.append(f"<p>$z^* = \\min Z = {_frac(obj_orig, mode)}$</p>")
+
+    # Nghiệm
     if report.multiple_optimal and report.multiple_optimal_vars:
         parts.append("<p class='warn'>⚠️ Bài toán có <b>vô số nghiệm tối ưu</b>.</p>")
         free_idx = report.multiple_optimal_vars[0]
-        snap = (report.phase2_trace.final_snapshot if report.phase2_trace and report.phase2_trace.final_snapshot
+        snap = (report.phase2_trace.final_snapshot
+                if report.phase2_trace and report.phase2_trace.final_snapshot
                 else report.dantzig.final_snapshot)
         if snap:
             param = _tex_var(snap.all_names[free_idx])
             parts.append(f"<p>Tham số tự do: ${param} \\geq 0$</p>")
-            parts.append(f"<p>$z^* = {_frac(snap.obj_const, mode)}$</p>")
             parts.append("<p>Nghiệm tổng quát:</p><ul>")
             bp = {b: i for i, b in enumerate(snap.basis)}
             for orig_idx, mapping in enumerate(engine.variable_mapping):
@@ -497,8 +579,6 @@ def _conclusion_html(report: SolveReport, engine, mode: str) -> str:
                 parts.append(f"<li>$x_{{{orig_idx+1}}} = {rhs_str}$</li>")
             parts.append("</ul>")
     else:
-        parts.append(f"<p>$z^*$ (dạng chuẩn min) $= {_frac(obj_std, mode)}$</p>")
-        parts.append(f"<p>Giá trị mục tiêu gốc $= {_frac(obj_orig, mode)}$</p>")
         parts.append("<p><b>Nghiệm tối ưu:</b></p><ul>")
         for i in range(len(engine.problem.var_signs)):
             val = report.solution_orig.get(i, Fraction(0))
