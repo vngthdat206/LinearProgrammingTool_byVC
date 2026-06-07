@@ -592,12 +592,58 @@ class SimplexEngine:
         rows = [deepcopy(r) for r in snapshot.rows]
         rhs = snapshot.rhs[:]
 
-        # Loại bỏ biến phụ/nhân tạo khỏi tất cả các hàng của từ vựng
+        # Tập biến cần loại: x0 (strip_vars) + artificial_vars từ ràng buộc =
         strip_set = set(strip_vars or []) | set(self.artificial_vars)
-        if strip_set:
-            for row in rows:
-                for v in strip_set:
-                    row.pop(v, None)
+
+        # Nếu biến cần loại còn degenerate trong basis (rhs=0),
+        # thực hiện degenerate pivot để đưa biến thực ra thay thế.
+        for i, b in enumerate(basis):
+            if b not in strip_set:
+                continue
+            if rhs[i] != 0:
+                continue  # rhs>0 → infeasible đã được check trước
+            # Tìm biến phi cơ sở có hệ số khác 0 trong hàng này để swap (degenerate pivot)
+            for j, a in rows[i].items():
+                if j in strip_set or j in basis:
+                    continue
+                if a != 0:
+                    # Degenerate pivot: đưa j vào, b ra (rhs không đổi = 0)
+                    basis[i] = j
+                    d = a
+                    new_row: Dict[int, Fraction] = {b: Fraction(1) / d}
+                    for k, v in rows[i].items():
+                        if k != j:
+                            new_row[k] = -v / d
+                    rows[i] = {k: v for k, v in new_row.items() if v != 0}
+                    rhs[i] = Fraction(0)
+                    # Cập nhật các hàng khác
+                    for ii in range(len(rows)):
+                        if ii == i:
+                            continue
+                        a_ii = rows[ii].get(j, Fraction(0))
+                        if a_ii == 0:
+                            continue
+                        rhs[ii] = rhs[ii] + a_ii * Fraction(0)  # rhs[i]=0
+                        upd: Dict[int, Fraction] = {}
+                        upd[b] = a_ii / d
+                        for k, v in rows[i].items():
+                            if k == j:
+                                continue
+                            c2 = rows[ii].get(k, Fraction(0)) - a_ii * v / d
+                            if c2 != 0:
+                                upd[k] = c2
+                        for k, v in rows[ii].items():
+                            if k == j or k in rows[i]:
+                                continue
+                            if v != 0:
+                                upd[k] = v
+                        rows[ii] = {k: v for k, v in upd.items() if v != 0}
+                    break
+
+        # Xóa cột của các biến cần strip khỏi tất cả các hàng
+        for row in rows:
+            for v in strip_set:
+                row.pop(v, None)
 
         raw_obj = {j: c for j, c in enumerate(self.std_obj_coeffs) if c != 0}
         raw_const = Fraction(0)
@@ -639,10 +685,11 @@ class SimplexEngine:
                     phase1_bland=phase1_bland, phase2_trace=None
                 )
 
-            # x0 không còn nằm trong cơ sở và giá trị mục tiêu pha 1 bằng 0 => sang pha 2
+            # Feasible ↔ δ* = 0 (obj_const=0). x0 degenerate (rhs=0) trong basis vẫn ok.
             snap1 = phase1.final_snapshot
-            aux_idx_in_basis = aux_idx in snap1.basis
-            if phase1.final_snapshot.obj_const != 0 or aux_idx_in_basis:
+            x0_pos = (aux_idx in snap1.basis and
+                      snap1.rhs[list(snap1.basis).index(aux_idx)] > 0)
+            if phase1.final_snapshot.obj_const != 0 or x0_pos:
                 phase1.infeasible = True
                 phase1.status = "infeasible"
                 return self._assemble_report(
@@ -823,7 +870,7 @@ class SimplexEngine:
         basis_set = set(snapshot.basis)
         multiple = False
         free_vars: List[int] = []
-        for j in range(len(self.std_names)):
+        for j in range(len(self.all_names)):
             if j in basis_set:
                 continue
             if j in art_set:
