@@ -258,60 +258,180 @@ def _render_trace_html(trace: SolveTrace, mode: str) -> str:
 def _problem_html(engine, mode: str) -> str:
     prob = engine.problem
     n = len(prob.obj_coeffs)
-    names_orig = [f"x_{{{i+1}}}" for i in range(n)]
 
     def expr_orig(coeffs):
         parts = []
-        for c, nm in zip(coeffs, names_orig):
+        for j, c in enumerate(coeffs):
             if c == 0:
                 continue
-            t = _term(c, f"x{nm[2:-1]}", mode)   # strip the braces for _term then re-tex
-            parts.append(t)
+            abs_c = abs(c)
+            vname = f"x_{{{j+1}}}"
+            sign = "+" if c > 0 else "-"
+            if abs_c == 1:
+                body = f"\\,{vname}"
+            else:
+                body = f"\\,{_frac(abs_c, mode)}{vname}"
+            parts.append(f"{sign}{body}")
         if not parts:
             return "0"
         return " ".join(parts).lstrip("+").strip()
 
-    # Hàm mục tiêu
-    obj_expr = expr_orig(prob.obj_coeffs)
     sense_label = "\\max" if prob.objective_sense == "max" else "\\min"
-    lines = [f"$${sense_label}\\; Z = {obj_expr}$$"]
+    obj_expr = expr_orig(prob.obj_coeffs)
 
-    # Ràng buộc
     con_lines = []
-    for i, cons in enumerate(prob.constraints):
+    for cons in prob.constraints:
         lhs = expr_orig(cons["coeffs"])
-        s = cons["sense"]
+        s_tex = {"≤": "\\leq", "≥": "\\geq", "=": "="}.get(cons["sense"], cons["sense"])
         rhs = _frac(Fraction(cons["rhs"]), mode)
-        s_tex = {"≤": "\\leq", "≥": "\\geq", "=": "="}.get(s, s)
         con_lines.append(f"\\quad {lhs} {s_tex} {rhs}")
 
-    # Điều kiện dấu: thêm vào cuối cases (bỏ biến tự do vì không cần ghi)
     for i, sg in enumerate(prob.var_signs):
         nm = f"x_{{{i+1}}}"
         if sg == "≥0":
             con_lines.append(f"\\quad {nm} \\geq 0")
         elif sg == "≤0":
             con_lines.append(f"\\quad {nm} \\leq 0")
-        # tự do: không ghi gì
 
-    con_block = " \\\\\\\\\\n".join(con_lines)
-    constraint_tex = f"$$\\\\begin{{cases}}\\n{con_block}\\n\\\\end{{cases}}$$"
+    con_body = " \\\\\n".join(con_lines)
 
-    return "".join(lines) + constraint_tex
+    return (
+        f"$${sense_label}\\; Z = {obj_expr}$$\n"
+        f"$$\\begin{{cases}}\n{con_body}\n\\end{{cases}}$$"
+    )
 
 
 def _standardization_html(engine, mode: str) -> str:
-    lines = engine.standardization_lines
-    # Mỗi dòng là text thuần, chỉ cần wrap vào <pre> hoặc escape rồi show
-    items = []
-    for ln in lines:
-        if not ln.strip():
-            items.append("<br>")
-        else:
-            # Escape HTML nhưng giữ ký tự toán
-            safe = ln.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            items.append(f"<p class='std-line'>{safe}</p>")
-    return "".join(items)
+    """Render các bước chuẩn hóa dưới dạng LaTeX đẹp."""
+    prob = engine.problem
+    n = len(prob.obj_coeffs)
+    names_orig = [f"x_{{{i+1}}}" for i in range(n)]
+
+    def expr_std(coeffs):
+        """Build LaTeX expression từ list/dict hệ số."""
+        parts = []
+        items = list(enumerate(coeffs)) if not isinstance(coeffs, dict) else coeffs.items()
+        for j, c in items:
+            if c == 0:
+                continue
+            abs_c = abs(c)
+            sign = "+" if c > 0 else "-"
+            nm = engine.all_names[j] if hasattr(engine, "all_names") and j < len(engine.all_names) else f"x_{{{j+1}}}"
+            tex_nm = _tex_var(nm)
+            if abs_c == 1:
+                body = f"\\,{tex_nm}"
+            else:
+                body = f"\\,{_frac(abs_c, mode)}{tex_nm}"
+            parts.append(f"{sign}{body}")
+        if not parts:
+            return "0"
+        return " ".join(parts).lstrip("+").strip()
+
+    parts = []
+
+    # ── Bước 1: Chuyển max → min nếu cần ──────────────────────────────────
+    if prob.objective_sense == "max":
+        obj_orig_expr = expr_std(prob.obj_coeffs)
+        neg_coeffs = [-c for c in prob.obj_coeffs]
+        obj_min_expr = expr_std(neg_coeffs)
+        parts.append("<p>📌 <b>Bước 1: Chuyển bài toán max → min</b></p>")
+        parts.append(f"<p>$$\\max Z = {obj_orig_expr} \\;\\equiv\\; \\min(-Z) = {obj_min_expr}$$</p>")
+    else:
+        parts.append("<p>📌 <b>Bước 1: Dạng mục tiêu</b></p>")
+        obj_expr = expr_std(prob.obj_coeffs)
+        parts.append(f"<p>$$\\min Z = {obj_expr}$$</p>")
+
+    # ── Bước 2: Xử lý biến dấu âm / tự do ────────────────────────────────
+    sub_notes = []
+    for i, sg in enumerate(prob.var_signs):
+        nm = f"x_{{{i+1}}}"
+        if sg == "≤0":
+            sub_notes.append(f"$\\quad {nm} \\leq 0$: đặt ${nm}' = -{nm} \\geq 0$")
+        elif sg == "tự do":
+            sub_notes.append(f"$\\quad {nm}$ tự do: đặt ${nm} = {nm}^+ - {nm}^-$, "
+                             f"$\\;{nm}^+,\\, {nm}^- \\geq 0$")
+    if sub_notes:
+        parts.append("<p>📌 <b>Bước 2: Thay thế biến không chuẩn</b></p>")
+        for note in sub_notes:
+            parts.append(f"<p>{note}</p>")
+    else:
+        parts.append("<p>📌 <b>Bước 2: Biến số</b> — tất cả $x_i \\geq 0$, không cần thay thế.</p>")
+
+    # ── Bước 3: Chuẩn hóa ràng buộc (thêm biến bù / nhân tạo) ────────────
+    parts.append("<p>📌 <b>Bước 3: Chuẩn hóa ràng buộc</b></p>")
+    con_items = []
+    # Lấy tên biến chuẩn từ engine nếu có
+    std_names = getattr(engine, "all_names", None)
+
+    for i, cons in enumerate(prob.constraints):
+        s = cons["sense"]
+        lhs_coeffs = cons["coeffs"]
+        rhs_val = Fraction(cons["rhs"])
+
+        # Build LHS từ biến gốc
+        lhs_parts = []
+        for j, c in enumerate(lhs_coeffs):
+            if c == 0:
+                continue
+            abs_c = abs(c)
+            sign = "+" if c > 0 else "-"
+            nm = names_orig[j]
+            body = f"\\,{nm}" if abs_c == 1 else f"\\,{_frac(abs_c, mode)}{nm}"
+            lhs_parts.append(f"{sign}{body}")
+        lhs_str = " ".join(lhs_parts).lstrip("+").strip() or "0"
+        rhs_str = _frac(rhs_val, mode)
+        s_tex = {"≤": "\\leq", "≥": "\\geq", "=": "="}.get(s, s)
+
+        if s == "≤":
+            # Thêm biến bù s_i
+            slack_nm = f"s_{{{i+1}}}"
+            std_lhs = f"{lhs_str} + {slack_nm}"
+            note = f"(thêm biến bù $+{slack_nm}$)"
+        elif s == "≥":
+            # Trừ biến bù, thêm biến nhân tạo nếu cần
+            slack_nm = f"s_{{{i+1}}}"
+            art_nm   = f"a_{{{i+1}}}"
+            std_lhs = f"{lhs_str} - {slack_nm} + {art_nm}"
+            note = f"(trừ biến bù $-{slack_nm}$, thêm biến nhân tạo $+{art_nm}$)"
+        else:  # =
+            art_nm = f"a_{{{i+1}}}"
+            std_lhs = f"{lhs_str} + {art_nm}"
+            note = f"(thêm biến nhân tạo $+{art_nm}$)"
+
+        # Nếu RHS âm, nhân -1 cả hai vế trước khi thêm biến
+        if rhs_val < 0:
+            note = "(nhân $-1$ cả hai vế, " + note.lstrip("(")
+            rhs_str = _frac(-rhs_val, mode)
+            # flip dấu ràng buộc
+            std_lhs_orig = std_lhs
+            std_lhs = f"\\text{{...}}"  # placeholder, đủ để reader hiểu
+
+        con_items.append(
+            f"<li>Ràng buộc {i+1}: $\\quad {lhs_str} {s_tex} {_frac(Fraction(cons['rhs']), mode)}$"
+            f"<br>$\\Rightarrow\\quad {std_lhs} = {rhs_str}$ &nbsp; {note}</li>"
+        )
+
+    parts.append(f"<ul>{''.join(con_items)}</ul>")
+
+    # ── Bảng biến chuẩn hóa cuối ──────────────────────────────────────────
+    if std_names:
+        std_tex = ",\\;".join(_tex_var(nm) for nm in std_names)
+        parts.append(f"<p>Các biến trong bài toán chuẩn hóa: $\\quad {std_tex}$</p>")
+
+    # Fallback: nếu engine có standardization_lines, show thêm ở cuối
+    raw_lines = getattr(engine, "standardization_lines", [])
+    if raw_lines:
+        parts.append("<details style='margin-top:8px'>"
+                     "<summary style='color:#64748B;font-size:0.87rem'>Xem log chi tiết (text thuần)</summary>")
+        for ln in raw_lines:
+            if not ln.strip():
+                parts.append("<br>")
+            else:
+                safe = ln.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                parts.append(f"<p class='std-line'>{safe}</p>")
+        parts.append("</details>")
+
+    return "".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -597,8 +717,8 @@ def export_report_html(report: SolveReport, mode: str = "Phân số") -> str:
             body_parts.append("</div>")
     else:
         body_parts.append("<div class='phase-section'>")
-        body_parts.append("<h2>🎯 Pha 2 (Giải trực tiếp)</h2>")
-        body_parts.append("<p class='note'>$b_i \\geq 0$ với mọi $i$ → không cần Pha 1.</p>")
+        body_parts.append("<h2>🎯 Giải bài toán</h2>")
+        body_parts.append("<p class='note'>$b_i \\geq 0$ với mọi $i$ → không cần Pha 1, giải trực tiếp.</p>")
         body_parts.append(_render_trace_html(report.dantzig, mode))
         if report.bland is not None and report.bland is not report.dantzig:
             body_parts.append("<h3>🔄 Bland (sau Dantzig xoay vòng)</h3>")

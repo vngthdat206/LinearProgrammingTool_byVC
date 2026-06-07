@@ -1162,26 +1162,106 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
     def _format_problem(self, engine):
         # Tạo chuỗi hiển thị bài toán gốc (trước chuẩn hóa):
-        # dòng "min/max Z = c1·x1 + … + cn·xn" và từng ràng buộc, điều kiện dấu.
+        # Căn thẳng cột: cụm (hệ số·biến) của từng biến thẳng nhau, dấu ≤/≥/= thẳng, RHS thẳng.
         mode = self.data_mode.get()
-        def expr(coeffs, names):
-            parts=[]
-            for c,nm in zip(coeffs,names):
-                if c==0: continue
-                if c==1: parts.append(f"+ {nm}")
-                elif c==-1: parts.append(f"- {nm}")
-                elif c>0: parts.append(f"+ {fmt_num(c,mode)}{nm}")
-                else: parts.append(f"- {fmt_num(-c,mode)}{nm}")
-            if not parts: return "0"
-            s=" ".join(parts)
-            return s[2:] if s.startswith("+ ") else s
-        lines=["Bài tập Quy Hoạch Tuyến Tính — Phương pháp Đơn hình","  Bài toán gốc:"]
-        n=len(engine.problem.obj_coeffs)
-        lines.append(f"    {engine.problem.objective_sense} Z = {expr(engine.problem.obj_coeffs,[f'x{i+1}' for i in range(n)])}")
-        lines.append("    {")
-        for cons in engine.problem.constraints:
-            lines.append(f"      {expr(cons['coeffs'],[f'x{i+1}' for i in range(len(cons['coeffs']))])} {cons['sense']} {fmt_num(cons['rhs'],mode)}")
-        lines.append(f"    {', '.join(f'x{i+1}' for i in range(len(engine.problem.var_signs)))} thuộc các điều kiện dấu đã chọn")
+        prob = engine.problem
+        n = len(prob.obj_coeffs)
+        var_names = [f"x{i+1}" for i in range(n)]
+
+        def fmt_coeff(c):
+            """Định dạng hệ số tuyệt đối (không có dấu)."""
+            return fmt_num(abs(c), mode)
+
+        def build_terms(coeffs):
+            """Trả về list (sign_str, body_str) cho từng hạng tử khác 0."""
+            terms = []
+            for c, nm in zip(coeffs, var_names):
+                if c == 0:
+                    continue
+                sign = "+" if c > 0 else "-"
+                if abs(c) == 1:
+                    body = nm
+                else:
+                    body = f"{fmt_coeff(c)}{nm}"
+                terms.append((sign, body))
+            return terms
+
+        # ── Thu thập tất cả hàng để tính độ rộng cột ────────────────────
+        # Mỗi hàng là list các (sign, body) theo thứ tự biến
+        def row_cells(coeffs):
+            """Với mỗi biến xj, trả về chuỗi hiển thị cho ô đó (có thể rỗng)."""
+            cells = []
+            for c, nm in zip(coeffs, var_names):
+                if c == 0:
+                    cells.append(("", ""))
+                else:
+                    sign = "+" if c > 0 else "-"
+                    body = nm if abs(c) == 1 else f"{fmt_coeff(c)}{nm}"
+                    cells.append((sign, body))
+            return cells
+
+        obj_cells   = row_cells(prob.obj_coeffs)
+        cons_cells  = [row_cells(cons["coeffs"]) for cons in prob.constraints]
+        all_cells   = [obj_cells] + cons_cells
+
+        # Độ rộng mỗi cột (sign + body gộp lại, ví dụ "- 3/2x2")
+        col_w = []
+        for j in range(n):
+            w = 0
+            for row in all_cells:
+                sign, body = row[j]
+                cell_str = f"{sign} {body}" if sign else ""
+                w = max(w, len(cell_str))
+            col_w.append(max(w, len(var_names[j]) + 2))  # tối thiểu đủ chứa tên biến
+
+        # Độ rộng RHS
+        rhs_strs = [fmt_num(cons["rhs"], mode) for cons in prob.constraints]
+        rhs_w = max((len(s) for s in rhs_strs), default=1)
+
+        def render_row(cells):
+            """Ghép một hàng đã căn phải theo col_w."""
+            parts = []
+            first_nonzero = True
+            for j, (sign, body) in enumerate(cells):
+                if not sign:  # hệ số = 0, điền khoảng trắng
+                    parts.append(" " * col_w[j])
+                else:
+                    if first_nonzero and sign == "+":
+                        cell_str = body          # hạng tử đầu bỏ dấu +
+                    else:
+                        cell_str = f"{sign} {body}"
+                    parts.append(cell_str.rjust(col_w[j]))
+                    first_nonzero = False
+            return "  ".join(parts).rstrip()
+
+        sense_label = "max" if prob.objective_sense == "max" else "min"
+        obj_line = f"    {sense_label} Z = {render_row(obj_cells)}"
+
+        # Căn dấu ràng buộc và RHS
+        sense_w = 1  # "≤" / "≥" / "=" đều 1 ký tự
+        con_lines = []
+        for i, cons in enumerate(prob.constraints):
+            lhs  = render_row(cons_cells[i])
+            s    = cons["sense"]
+            rhs  = rhs_strs[i].rjust(rhs_w)
+            con_lines.append(f"      {lhs}  {s}  {rhs}")
+
+        # Điều kiện dấu biến
+        sign_parts = []
+        for i, sg in enumerate(prob.var_signs):
+            nm = f"x{i+1}"
+            if sg == "≥0":     sign_parts.append(f"{nm} ≥ 0")
+            elif sg == "≤0":   sign_parts.append(f"{nm} ≤ 0")
+            else:              sign_parts.append(f"{nm} tự do")
+
+        lines = [
+            "Bài tập Quy Hoạch Tuyến Tính — Phương pháp Đơn hình",
+            "  Bài toán gốc:",
+            obj_line,
+            "    s.t. {",
+        ]
+        lines += con_lines
+        lines.append(f"      {',  '.join(sign_parts)}")
         lines.append("    }")
         return "\n".join(lines)
 
@@ -1243,23 +1323,50 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return "\n".join(lines)
 
     def _dict_lines(self, snapshot):
-        # Tạo danh sách dòng văn bản cho bảng từ vựng (dictionary) tại một snapshot.
-        # Mỗi dòng: "[tên biến cơ sở] = [hằng số]  [hệ số biến phi cơ sở…]"
-        mode=self.data_mode.get(); names=snapshot.all_names
-        widths=[]
-        for j,name in enumerate(names):
-            ml=len(name)
-            for c in [snapshot.obj.get(j,Fraction(0))]+[r.get(j,Fraction(0)) for r in snapshot.rows]:
-                ml=max(ml,len(term_str(c,name,mode)))
-            widths.append(max(8,min(14,ml+2)))
-        def line_for(label,const,coeffs):
-            out=[f"{label} = {fmt_num(const,mode)}"]
-            for j,name in enumerate(names):
-                out.append(term_str(coeffs.get(j,Fraction(0)),name,mode).ljust(widths[j]))
-            return " ".join(out).rstrip()
-        lines=[line_for(snapshot.objective_label, snapshot.obj_const, snapshot.obj)]
-        for i,b in enumerate(snapshot.basis):
-            lines.append(line_for(names[b], snapshot.rhs[i], snapshot.rows[i]))
+        # Tạo danh sách dòng cho bảng từ vựng.
+        # Mỗi cột biến có độ rộng = max độ rộng hạng tử thực tế trên tất cả hàng.
+        # Khoảng cách giữa các cột = GAP cố định (không phụ thuộc nội dung).
+        # Bỏ separator │ để gọn hơn.
+        GAP = 2          # số khoảng trắng giữa hai cột liền kề
+        mode = self.data_mode.get()
+        names = snapshot.all_names
+
+        all_rows = [(snapshot.objective_label, snapshot.obj_const, snapshot.obj)]
+        for i, b in enumerate(snapshot.basis):
+            all_rows.append((names[b], snapshot.rhs[i], snapshot.rows[i]))
+
+        # Độ rộng cột nhãn và cột hằng số
+        label_w = max(len(row[0]) for row in all_rows)
+        const_strs = [fmt_num(row[1], mode) for row in all_rows]
+        const_w = max(len(s) for s in const_strs)
+
+        # Độ rộng mỗi cột biến: max độ rộng hạng tử (kể cả "0" nếu hệ số = 0 được bỏ → ô trống)
+        # Hạng tử rỗng ("") vẫn cần giữ chỗ bằng đúng độ rộng cột → không dùng ljust mà dùng rjust
+        col_w = []
+        col_cells = []   # col_cells[row_idx][col_idx] = chuỗi hạng tử (có thể rỗng)
+        for _ in all_rows:
+            col_cells.append([])
+
+        for j, name in enumerate(names):
+            w = 0
+            for ri, (_, _, coeffs) in enumerate(all_rows):
+                s = term_str(coeffs.get(j, Fraction(0)), name, mode)
+                col_cells[ri].append(s)
+                w = max(w, len(s))
+            col_w.append(w)   # độ rộng thực tế tối thiểu; có thể bằng 0 nếu cột toàn rỗng
+
+        def line_for(ri, label, const_s):
+            label_part = label.ljust(label_w)
+            const_part = const_s.rjust(const_w)
+            # Mỗi ô: ljust theo col_w[j] (giữ chỗ cho ô rỗng)
+            term_parts = [col_cells[ri][j].ljust(col_w[j]) for j in range(len(names))]
+            # Ghép bằng GAP khoảng trắng, sau đó rstrip để bỏ trailing spaces
+            term_part = (" " * GAP).join(term_parts).rstrip()
+            return f"{label_part} = {const_part}    {term_part}"
+
+        lines = []
+        for ri, ((label, const, coeffs), const_s) in enumerate(zip(all_rows, const_strs)):
+            lines.append(line_for(ri, label, const_s))
         return lines
 
     def _insert_snapshot(self, snapshot, title, tags=None):
@@ -1420,11 +1527,11 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             else:
                 self.output.insert(tk.END,"\nKẾT LUẬN\n  Vô nghiệm.\n","warn"); return
         else:
-            self.output.insert(tk.END,"\n============================\n*Pha 1:\n============================\n_ b_i ≥ 0, không cần pha 1.\n\n============================\n*Pha 2: Giải bài toán gốc\n============================\n","h2")
-            self._render_trace("Pha 2",report.dantzig)
+            self.output.insert(tk.END,"\n============================\n Không cần Pha 1\n============================\n_ b_i ≥ 0, cơ sở ban đầu khả thi, giải trực tiếp.\n\n============================\n Giải bài toán\n============================\n","h2")
+            self._render_trace("Giải bài toán",report.dantzig)
             if report.bland is not None and report.bland is not report.dantzig:
-                self.output.insert(tk.END,"\n*Bland sau Dantzig lặp ở pha 2\n","h2")
-                self._render_trace("Pha 2 - Bland",report.bland)
+                self.output.insert(tk.END,"\n Bland (sau Dantzig xoay vòng)\n","h2")
+                self._render_trace("Bland",report.bland)
         final=report.phase2_trace.final_snapshot if report.phase2_trace and report.phase2_trace.final_snapshot else (report.bland.final_snapshot if report.bland and report.bland.final_snapshot else report.dantzig.final_snapshot)
         if report.status in ("unbounded",) or (report.bland and report.bland.status=="unbounded"):
             self.output.insert(tk.END,"\nKẾT LUẬN\n  Không giới nội.\n","warn"); return
@@ -1441,9 +1548,23 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 self.output.insert(tk.END,line+"\n","note")
         else:
             self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
-            self.output.insert(tk.END,f"  Tối ưu ({report.used_method.upper()}).\n  z* (bảng min) = {fmt_num(obj_std,mode)}\n  Giá trị gốc: {fmt_num(obj_orig,mode)}\n","note")
-            orig_parts=[f"x{i+1} = {fmt_num(report.solution_orig.get(i,Fraction(0)),mode)}" for i in range(len(engine.problem.var_signs))]
-            self.output.insert(tk.END,"  Nghiệm: "+"  ;  ".join(orig_parts)+"\n","note")
+            method_lbl = report.used_method.upper()
+            self.output.insert(tk.END,
+                f"  Tối ưu ({method_lbl}).\n"
+                f"  z* (bảng min) = {fmt_num(obj_std,mode)}\n"
+                f"  Giá trị gốc   = {fmt_num(obj_orig,mode)}\n",
+                "note")
+            # Nghiệm: mỗi xi một dòng, căn phải theo cụm "xi = val"
+            n_orig = len(engine.problem.var_signs)
+            sol_strs = [fmt_num(report.solution_orig.get(i, Fraction(0)), mode)
+                        for i in range(n_orig)]
+            val_w = max(len(s) for s in sol_strs)
+            var_w = max(len(f"x{i+1}") for i in range(n_orig))
+            self.output.insert(tk.END,"  Nghiệm tối ưu:\n","note")
+            for i, val_s in enumerate(sol_strs):
+                nm = f"x{i+1}".ljust(var_w)
+                val = val_s.rjust(val_w)
+                self.output.insert(tk.END, f"    {nm} = {val}\n", "note")
         d=(report.dantzig.degenerate_steps or 0)+((report.bland.degenerate_steps if report.bland else 0) or 0)
         if d: self.output.insert(tk.END,f"  Có {d} bước suy biến.\n","warn")
 
