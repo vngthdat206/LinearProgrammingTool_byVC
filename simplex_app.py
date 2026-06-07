@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import math
+import os
 import tkinter as tk
+import webbrowser
 from fractions import Fraction
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import Any, Dict, List, Optional, Tuple
 
 from models import ProblemData, SolveReport
-from models import Snapshot, PivotStep, SolveTrace 
+from models import Snapshot, PivotStep, SolveTrace
 from simplex_engine import SimplexEngine
+from html_exporter import export_report_html
 from utils import (VAR_SIGNS, SENSES, clean_number_text, fmt_num,
                    fr, parse_cell, row_expr, sense_to_standard, term_str)
 from viz3d import Viz3DMixin
@@ -42,6 +45,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         self.last_report: Optional[SolveReport] = None
         self.last_problem: Optional[ProblemData] = None
         self.export_btn: Optional[tk.Button] = None
+        self.html_btn: Optional[tk.Button] = None
         self.viz_btn: Optional[tk.Button] = None
         self.viz3d_btn: Optional[tk.Button] = None
 
@@ -218,16 +222,17 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                    command=self._build_inputs).grid(
             row=3, column=0, columnspan=2, sticky="ew", pady=(10, 0))
 
-        # Hàng nút xuất file + trực quan hóa
+        # Hàng nút xuất file + HTML + trực quan hóa
         action_row = ttk.Frame(config)
         action_row.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(8, 0))
         action_row.columnconfigure(0, weight=1)
         action_row.columnconfigure(1, weight=1)
+        action_row.columnconfigure(2, weight=1)
 
         # Nút "Xuất file .txt": ban đầu bị vô hiệu hóa (xám); chỉ sáng lên sau khi giải xong
         self.export_btn = tk.Button(
             action_row,
-            text="📄  Xuất file .txt",
+            text="📄  Xuất .txt",
             font=("Segoe UI", 9, "bold"),
             bg="#CBD5E1", fg="white",
             activebackground="#94A3B8", activeforeground="white",
@@ -235,16 +240,33 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             cursor="arrow", state=tk.DISABLED,
             command=self.export_solution_txt,
         )
-        self.export_btn.grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        self.export_btn.grid(row=0, column=0, sticky="ew", padx=(0, 3))
         self.export_btn.bind("<Enter>",
                              lambda e: self._on_button_enter(e, "#2563EB"))
         self.export_btn.bind("<Leave>",
                              lambda e: self._on_button_leave(e, "#CBD5E1"))
 
+        # Nút "Xem HTML (KaTeX)": xuất lời giải đẹp ra trình duyệt
+        self.html_btn = tk.Button(
+            action_row,
+            text="🌐  Xem HTML",
+            font=("Segoe UI", 9, "bold"),
+            bg="#CBD5E1", fg="white",
+            activebackground="#94A3B8", activeforeground="white",
+            relief="flat", bd=0, padx=6, pady=7,
+            cursor="arrow", state=tk.DISABLED,
+            command=self.open_solution_html,
+        )
+        self.html_btn.grid(row=0, column=1, sticky="ew", padx=(0, 3))
+        self.html_btn.bind("<Enter>",
+                           lambda e: self._on_button_enter(e, "#0F766E"))
+        self.html_btn.bind("<Leave>",
+                           lambda e: self._on_button_leave(e, "#CBD5E1"))
+
         # Nút "Trực quan hóa (2D/3D)": luôn hiển thị, nhưng đổi nhãn/màu theo số biến
         self.viz_btn = tk.Button(
             action_row,
-            text="📊  Trực quan hóa (2D)",
+            text="📊  Trực quan",
             font=("Segoe UI", 9, "bold"),
             bg="#6EBF8B", fg="white",
             activebackground="#4DAA72", activeforeground="white",
@@ -252,7 +274,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             cursor="hand2",
             command=self._viz_dispatch,
         )
-        self.viz_btn.grid(row=0, column=1, sticky="ew")
+        self.viz_btn.grid(row=0, column=2, sticky="ew")
         self.viz_btn.bind("<Enter>",
                           lambda e: self._on_button_enter(e, None))
         self.viz_btn.bind("<Leave>",
@@ -569,23 +591,27 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
 
     def _set_solution_available(self, available: bool) -> None:
-        # Bật/tắt nút "Xuất file .txt" tùy theo có kết quả giải hay chưa.
-        if self.export_btn is None:
-            return
-        if available:
-            self.export_btn._base_bg = "#3B82F6"
-            self.export_btn._hover_bg = "#2563EB"
-            self.export_btn.config(state=tk.NORMAL,
-                                   bg="#3B82F6",
-                                   activebackground="#2563EB",
-                                   cursor="hand2")
-        else:
-            self.export_btn._base_bg = "#CBD5E1"
-            self.export_btn._hover_bg = "#94A3B8"
-            self.export_btn.config(state=tk.DISABLED,
-                                   bg="#CBD5E1",
-                                   activebackground="#94A3B8",
-                                   cursor="arrow")
+        # Bật/tắt nút "Xuất file .txt" và "Xem HTML" tùy theo có kết quả giải hay chưa.
+        for btn, hover_color, base_color in [
+            (self.export_btn, "#2563EB", "#3B82F6"),
+            (self.html_btn,   "#0F766E", "#0D9488"),
+        ]:
+            if btn is None:
+                continue
+            if available:
+                btn._base_bg = base_color
+                btn._hover_bg = hover_color
+                btn.config(state=tk.NORMAL,
+                           bg=base_color,
+                           activebackground=hover_color,
+                           cursor="hand2")
+            else:
+                btn._base_bg = "#CBD5E1"
+                btn._hover_bg = "#94A3B8"
+                btn.config(state=tk.DISABLED,
+                           bg="#CBD5E1",
+                           activebackground="#94A3B8",
+                           cursor="arrow")
 
     # Bảng màu và nhãn nút trực quan hóa theo số biến:
     #   2 biến → nút xanh sage "Nordic Frost" "Trực quan hóa (2D)"
@@ -686,6 +712,22 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             self.status_var.set(f"Đã xuất file: {path}")
         except Exception as exc:
             messagebox.showerror("Lỗi xuất file", str(exc))
+
+    def open_solution_html(self) -> None:
+        """Xuất lời giải đầy đủ ra HTML+KaTeX và mở trong trình duyệt mặc định."""
+        if self.last_report is None:
+            messagebox.showinfo("Xem HTML", "Chưa có lời giải. Vui lòng chạy giải thuật trước.")
+            return
+        try:
+            self.status_var.set("Đang tạo file HTML…")
+            self.update_idletasks()
+            path = export_report_html(self.last_report, self.data_mode.get())
+            url = f"file:///{path.replace(os.sep, '/')}"
+            webbrowser.open(url)
+            self.status_var.set(f"Đã mở trình duyệt: {os.path.basename(path)}")
+        except Exception as exc:
+            messagebox.showerror("Lỗi xuất HTML", str(exc))
+            self.status_var.set("Lỗi khi tạo file HTML.")
 
 
     def _boundary_text(self, coeffs, sense: str, rhs: Fraction) -> str:
