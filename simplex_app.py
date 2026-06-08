@@ -350,6 +350,30 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             "<Configure>",
             lambda e: self.input_canvas.itemconfigure(
                 self.input_window, width=e.width))
+        def _on_mousewheel(event):
+            if event.num == 4 or event.delta > 0:
+                self.input_canvas.yview_scroll(-1, "units")
+            elif event.num == 5 or event.delta < 0:
+                self.input_canvas.yview_scroll(1, "units")
+
+        def _bind_mousewheel(event):
+            self.input_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+            self.input_canvas.bind_all("<Button-4>", _on_mousewheel) 
+            self.input_canvas.bind_all("<Button-5>", _on_mousewheel) 
+
+        def _unbind_mousewheel(event):
+            x, y = event.widget.winfo_pointerxy()
+            widget_under_mouse = event.widget.winfo_containing(x, y)
+            
+            if widget_under_mouse and str(widget_under_mouse).startswith(str(input_box)):
+                return
+                
+            self.input_canvas.unbind_all("<MouseWheel>")
+            self.input_canvas.unbind_all("<Button-4>")
+            self.input_canvas.unbind_all("<Button-5>")
+
+        input_box.bind("<Enter>", _bind_mousewheel)
+        input_box.bind("<Leave>", _unbind_mousewheel)
 
         # Cột phải (hiển thị lời giải): Dùng ScrolledText để cuộn cả dọc lẫn ngang; font monospace để canh cột bảng từ vựng
         right = ttk.Labelframe(main, text="Lời giải", padding=8)
