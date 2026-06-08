@@ -793,7 +793,13 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         if self.viz_btn is None:
             return
         n = int(self.n_vars.get())
-        if n > 3:
+
+        if self.last_report is None:
+            self.viz_btn.config(
+                text="🔒  Trực quan hóa (Chưa giải)",
+                state=tk.DISABLED,
+                bg="#CBD5E1", cursor="arrow")
+        elif n > 3:
             # Hơn 3 biến: không hỗ trợ trực quan, khóa nút lại
             s = self._VIZ_DISABLED
             self.viz_btn.config(
@@ -2030,10 +2036,12 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
             self._view_selected_solution(report_d, report_b)
             self._set_solution_available(True)
+            self._update_viz_btn_state()
             self.status_var.set("Đã giải xong (Đa luồng).")
 
         except Exception as exc:
             self.last_report = None
+            if self.viz_btn: self.viz_btn.config(state=tk.DISABLED)
             self._set_solution_available(False)
             messagebox.showerror("Lỗi nhập liệu / giải thuật", str(exc))
             self.status_var.set("Có lỗi xảy ra. Kiểm tra lại dữ liệu nhập.")
