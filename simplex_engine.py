@@ -158,36 +158,79 @@ class SimplexEngine:
             self.standardization_lines.append("")
 
     def _build_dictionary(self) -> None:
+        """Xây dựng từ vựng Simplex ban đầu.
+
+        Quy tắc biến:
+        • Ràng buộc ≤ với rhs ≥ 0  → thêm biến bù w_k (slack), w_k là cơ sở.
+        • Ràng buộc ≤ với rhs < 0  → nhân -1 thành ≥ (rhs > 0), thêm biến thặng dư s_k
+          (surplus) VÀ biến nhân tạo a_k; a_k là cơ sở ban đầu (a_k > 0).
+          Biến nhân tạo a_k được thêm vào self.artificial_vars để pha 1 chuẩn xử lý.
+
+        Convention từ vựng:  v_i = rhs_i + Σ row_ij · x_j
+        • Slack   (rhs ≥ 0): row[j] = −a_j   (hệ số gốc)
+        • Artificial (rhs < 0 flip):
+            Từ Σ a_j·x_j ≤ b  (b < 0)  →  Σ(−a_j)·x_j ≥ −b  (−b > 0)
+            Thêm surplus s và artificial r:
+                r = (−b) + Σ a_j·x_j + s
+            Nên: row[j] = +a_j,  row[s_idx] = +1,  rhs = −b > 0
+        """
         self.all_names = self.std_names[:]
         next_slack = 1
+        next_art = 1
         basis: List[int] = []
         rows: List[Dict[int, Fraction]] = []
-        rhs: List[Fraction] = []
+        rhs_list: List[Fraction] = []
 
         for coeffs, sense, b in zip(self.std_constraints, self.std_senses, self.std_rhs):
-            row = {j: -a for j, a in enumerate(coeffs) if a != 0}
-            if sense == "≤":
-                # Thêm biến bù w_k; w_k là cơ sở ban đầu
+            if sense != "≤":
+                raise ValueError(f"Sense không hợp lệ sau chuẩn hóa: {sense}")
+
+            if b >= 0:
+                # Trường hợp bình thường: slack w_k là biến cơ sở
+                row = {j: -a for j, a in enumerate(coeffs) if a != 0}
                 sidx = len(self.all_names)
                 self.all_names.append(f"w{next_slack}")
                 next_slack += 1
                 basis.append(sidx)
+                rows.append(row)
+                rhs_list.append(b)
             else:
-                raise ValueError(f"Sense không hợp lệ sau chuẩn hóa: {sense}")
-            rows.append(row)
-            rhs.append(b)
+                # rhs < 0: nhân hàng với -1
+                # Ràng buộc gốc: Σ a_j·x_j ≤ b  →  Σ(−a_j)·x_j ≥ −b  (−b > 0)
+                # Thêm surplus s_k (≥0) và artificial a_k (≥0):
+                #   Σ(−a_j)·x_j − s_k + a_k = −b
+                #   a_k = (−b) + Σ a_j·x_j + s_k
+                # Dict convention (a_k = rhs + Σ row_j·x_j):
+                #   row[j] = +a_j,  row[s_idx] = +1,  rhs = −b > 0
+
+                # Surplus s_k
+                s_idx = len(self.all_names)
+                self.all_names.append(f"w{next_slack}")
+                next_slack += 1
+
+                # Artificial a_k
+                art_idx = len(self.all_names)
+                self.all_names.append(f"a{next_art}")
+                next_art += 1
+                self.artificial_vars.append(art_idx)
+
+                row: Dict[int, Fraction] = {}
+                for j, a in enumerate(coeffs):
+                    if a != 0:
+                        row[j] = a   # +a_j (flipped)
+                row[s_idx] = Fraction(1)   # +1 for surplus
+
+                basis.append(art_idx)
+                rows.append(row)
+                rhs_list.append(-b)   # −b > 0
 
         self.initial_basis = basis
         self.initial_rows = rows
-        self.initial_rhs = rhs
-        # artificial_vars đã được set trong _transform_constraints (ràng buộc =)
-        # need_aux_phase1: cần pha 1 bổ trợ (x0) khi có b_i < 0
-        # Nếu có biến độ nhiễu từ ràng buộc = thì dùng pha 1 cổ điển (nhánh artificial_vars)
-        # Nếu chỉ có b_i < 0 (không có =) thì dùng pha 1 bổ trợ x0
-        # need_aux_phase1: True khi có b_i < 0 sau chuẩn hóa (cần đưa x0 vào trước).
-        # Không phân biệt có/không có artificial_vars — x0 bổ trợ xử lý mọi b<0,
-        # biến độ nhiễu (ràng buộc =) vẫn nằm trong từ vựng và được loại bởi pha 1.
-        self.need_aux_phase1 = any(b < 0 for b in self.initial_rhs)
+        self.initial_rhs = rhs_list
+        # Không còn dùng need_aux_phase1 / x0 bổ trợ nữa.
+        # Mọi trường hợp có basis không khả thi ban đầu (rhs<0 gốc hoặc ràng buộc =)
+        # đều được xử lý thống nhất qua artificial_vars + pha 1 chuẩn.
+        self.need_aux_phase1 = False
     # ---------- dictionary operations ----------
     @staticmethod
     def _canonicalize(
