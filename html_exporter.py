@@ -543,21 +543,21 @@ def _standardization_html(engine, mode: str) -> str:
 def _conclusion_html(report: SolveReport, engine, mode: str) -> str:
     parts: List[str] = []
     status = report.status
+    is_max = engine.problem.objective_sense == "max"
 
     if status == "infeasible":
         has_aux = bool(getattr(engine, "need_aux_phase1", False))
+        z_val = "$z_{\\max} = -\\infty$" if is_max else "$z_{\\min} = +\\infty$"
         if has_aux:
-            reason = "Biến phụ $x_0$ vẫn còn trong cơ sở sau Pha 1 (giá trị $x_0 > 0$) → miền chấp nhận được rỗng."
+            reason = f"Biến phụ $x_0$ vẫn còn trong cơ sở sau Pha 1 (giá trị $x_0 > 0$) → miền chấp nhận được rỗng ({z_val})."
         else:
             art_names = [engine.all_names[a] for a in engine.artificial_vars] if engine.artificial_vars else []
             art_str = ", ".join(f"${nm}$" for nm in art_names) if art_names else "biến độ nhiễu"
-            reason = f"Pha 1 kết thúc với hàm bổ trợ $> 0$ — {art_str} không thể đưa ra khỏi cơ sở → bài toán vô nghiệm."
+            reason = f"Pha 1 kết thúc với hàm bổ trợ $> 0$ — {art_str} không thể đưa ra khỏi cơ sở → bài toán vô nghiệm ({z_val})."
         parts.append(f"<div class='conclusion warn-box'><h3>KẾT LUẬN: Vô nghiệm</h3>"
                      f"<p>{reason}</p></div>")
         return "".join(parts)
-
     if status == "unbounded":
-        is_max = engine.problem.objective_sense == "max"
         z_val = "$z_{\\max} = +\\infty$" if is_max else "$z_{\\min} = -\\infty$"
         parts.append(f"<div class='conclusion warn-box'><h3>KẾT LUẬN: Không giới nội</h3>"
                      f"<p>Có biến vào nhưng không có biến ra khả thi → {z_val}.</p></div>")
@@ -579,7 +579,6 @@ def _conclusion_html(report: SolveReport, engine, mode: str) -> str:
     obj_std  = report.objective_std  or Fraction(0)
     obj_orig = report.objective_orig or Fraction(0)
     method_label = "Dantzig" if report.used_method == "dantzig" else "Bland"
-    is_max = engine.problem.objective_sense == "max"
 
     parts.append(f"<div class='conclusion success-box'>")
     parts.append(f"<h3>KẾT LUẬN: Tối ưu ({method_label})</h3>")
