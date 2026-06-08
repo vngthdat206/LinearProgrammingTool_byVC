@@ -396,6 +396,11 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             state=tk.DISABLED
         )
         self.output.grid(row=0, column=0, sticky="nsew")
+
+        h_scroll = ttk.Scrollbar(right, orient="horizontal", command=self.output.xview)
+        h_scroll.grid(row=1, column=0, sticky="ew")
+        self.output.configure(xscrollcommand=h_scroll.set)
+      
         # Định nghĩa các "tag" màu sắc dùng trong vùng lời giải:
         #   h1        → tên bài toán (to, đậm, màu nâu đỏ)
         #   h2        → tiêu đề pha / bước (đậm, màu xanh than)
