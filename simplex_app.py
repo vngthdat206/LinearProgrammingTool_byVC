@@ -210,16 +210,13 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         ttk.Spinbox(setup_row, from_=1, to=10, textvariable=self.n_constraints,
                     width=5, command=self._build_inputs).pack(side="left")
 
-        ttk.Button(config, text="Tạo lại bảng nhập",
-                   command=self._build_inputs).grid(
-            row=3, column=0, columnspan=2, sticky="ew", pady=(10, 0))
-
         # Hàng nút xuất file + HTML + trực quan hóa
         action_row = ttk.Frame(config)
-        action_row.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        action_row.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(8, 0)) 
         action_row.columnconfigure(0, weight=1)
         action_row.columnconfigure(1, weight=1)
         action_row.columnconfigure(2, weight=1)
+        action_row.columnconfigure(3, weight=1) 
 
         # Nút "Xuất file .txt": ban đầu bị vô hiệu hóa (xám); chỉ sáng lên sau khi giải xong
         self.export_btn = tk.Button(
@@ -266,11 +263,25 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             cursor="hand2",
             command=self._viz_dispatch,
         )
-        self.viz_btn.grid(row=0, column=2, sticky="ew")
+        self.viz_btn.grid(row=0, column=2, sticky="ew", padx = (0,3))
         self.viz_btn.bind("<Enter>",
                           lambda e: self._on_button_enter(e, None))
         self.viz_btn.bind("<Leave>",
                           lambda e: self._on_button_leave(e, None))
+
+        self.reset_btn = tk.Button(
+            action_row,
+            text="Xóa & nhập lại",
+            font=("Segoe UI", 9, "bold"),
+            bg="#94A3B8", fg="white",
+            activebackground="#64748B", activeforeground="white",
+            relief="flat", bd=0, padx=6, pady=7,
+            cursor="hand2",
+            command=self._build_inputs,
+        )
+        self.reset_btn.grid(row=0, column=3, sticky="ew")
+        self.reset_btn.bind("<Enter>", lambda e: self._on_button_enter(e, "#64748B"))
+        self.reset_btn.bind("<Leave>", lambda e: self._on_button_leave(e, "#94A3B8"))
 
         self.viz3d_btn = None
 
