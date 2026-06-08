@@ -194,6 +194,16 @@ def _step_note_html(step: PivotStep, snapshot: Snapshot, mode: str) -> str:
             lines.append("<p class='warn'>⚠️ Bước suy biến ($\\theta = 0$).</p>")
         return "".join(lines)
 
+    if step.status == "phase1_aux_degenerate_exit":
+        lines.append(f"<p class='note-rule'>⚙️ <b>Xoay $x_0$ ra (degenerate pivot)</b></p>")
+        lines.append(f"<p>$\\delta = 0$ nhưng $x_0$ vẫn trong cơ sở với $x_0 = 0$ "
+                     f"→ cần xoay $x_0$ ra để chuẩn bị sang Pha 2.</p>")
+        lines.append(f"<p>Chọn <b>${enter}$</b> vào thay $x_0$ ($\\theta = 0$, bước suy biến).</p>")
+        lines.append(f"<p>$\\Rightarrow$ Biến vào: ${enter}$ &nbsp;|&nbsp; Biến ra: ${leave}$</p>")
+        if step.pivot_value is not None:
+            lines.append(f"<p>Phần tử xoay: $a_{{{leave},{enter}}} = {_frac(step.pivot_value, mode)}$</p>")
+        return "".join(lines)
+
     lines.append(f"<p class='note-rule'>⚙️ <b>Quy tắc {rule}</b></p>")
     if step.entering is not None:
         coeff = snapshot.obj.get(step.entering, Fraction(0))
@@ -233,12 +243,12 @@ def _render_trace_html(trace: SolveTrace, mode: str) -> str:
     parts: List[str] = []
     if not trace.steps:
         if trace.final_snapshot:
-            parts.append("<p class='note'>Từ vựng ban đầu (không cần xoay):</p>")
+            parts.append("<p class='note'>Từ vựng xuất phát (không cần xoay):</p>")
             parts.append(_snapshot_table(trace.final_snapshot, mode))
         return "".join(parts)
 
     for step in trace.steps:
-        title = "Từ vựng ban đầu" if step.iteration == 1 else f"Bước {step.iteration} — trước xoay"
+        title = "Từ vựng xuất phát" if step.iteration == 1 else f"Bước {step.iteration} — trước xoay"
         parts.append(f"<h4>{title}</h4>")
 
         # Bảng trước xoay (có highlight)
@@ -600,10 +610,67 @@ def _conclusion_html(report: SolveReport, engine, mode: str) -> str:
                 else report.dantzig.final_snapshot)
         if snap:
             param = _tex_var(snap.all_names[free_idx])
-            parts.append(f"<p>Tham số tự do: ${param} \\geq 0$</p>")
+            # Tính điều kiện tham số từ các ràng buộc
+            lowers: List[Fraction] = [Fraction(0)]
+            uppers: List[Fraction] = []
+            param_cond_lines: List[str] = []
+            for ri, b_idx in enumerate(snap.basis):
+                coef_param = snap.rows[ri].get(free_idx, Fraction(0))
+                rhs_val = snap.rhs[ri]
+                if coef_param == 0:
+                    continue
+                bound = -rhs_val / coef_param
+                b_name = _tex_var(snap.all_names[b_idx])
+                if coef_param > 0:
+                    lowers.append(bound)
+                    param_cond_lines.append(f"${param} \\geq {_frac(bound, mode)}$ (từ ${b_name} \\geq 0$)")
+                else:
+                    uppers.append(bound)
+                    param_cond_lines.append(f"${param} \\leq {_frac(bound, mode)}$ (từ ${b_name} \\geq 0$)")
+            lower = max(lowers)
+            if param_cond_lines:
+                parts.append("<p>Điều kiện khả thi từ các ràng buộc:</p><ul>")
+                for pc in param_cond_lines:
+                    parts.append(f"<li>{pc}</li>")
+                parts.append("</ul>")
+            if uppers:
+                upper = min(uppers)
+                parts.append(f"<p>→ Điều kiện tham số rút gọn: ${_frac(lower, mode)} \\leq {param} \\leq {_frac(upper, mode)}$</p>")
+            else:
+                parts.append(f"<p>→ Điều kiện tham số rút gọn: ${param} \\geq {_frac(lower, mode)}$</p>")
+
             parts.append("<p>Nghiệm tổng quát:</p><ul>")
             bp = {b: i for i, b in enumerate(snap.basis)}
             for orig_idx, mapping in enumerate(engine.variable_mapping):
+                # Biến tự do: a_i - b_i, nếu b_i là tham số
+                if (len(mapping) == 2 and mapping[0][1] == Fraction(1) and mapping[1][1] == Fraction(-1)):
+                    j1, j2 = mapping[0][0], mapping[1][0]
+                    obj_c_j2 = snap.obj.get(j2, Fraction(0))
+                    if obj_c_j2 == 0 and j2 == free_idx:
+                        # a_i expression
+                        c1, t1 = (snap.rhs[bp[j1]], [(snap.rows[bp[j1]].get(free_idx, Fraction(0)), snap.all_names[free_idx])]) if j1 in bp else (Fraction(0), [])
+                        t1 = [(cf, nm) for cf, nm in t1 if cf != 0]
+                        c2, t2 = (Fraction(0), [(Fraction(1), snap.all_names[j2])]) if j2 == free_idx else (Fraction(0), [])
+                        a_name = _tex_var(engine.all_names[j1])
+                        b_name_tex = _tex_var(engine.all_names[j2])
+                        # Build a_expr
+                        rhs_a = snap.rhs[bp[j1]] if j1 in bp else Fraction(0)
+                        a_rhs_parts = [_frac(rhs_a, mode)] if rhs_a != 0 else []
+                        if j1 in bp:
+                            cf_a = snap.rows[bp[j1]].get(free_idx, Fraction(0))
+                            if cf_a != 0:
+                                a_rhs_parts.append(_term(cf_a, snap.all_names[free_idx], mode))
+                        a_expr = " ".join(a_rhs_parts).lstrip("+").strip() or "0"
+                        # x = a - b
+                        const_diff = (snap.rhs[bp[j1]] if j1 in bp else Fraction(0))
+                        cf_diff = (snap.rows[bp[j1]].get(free_idx, Fraction(0)) if j1 in bp else Fraction(0)) - Fraction(1)
+                        diff_parts = [_frac(const_diff, mode)] if const_diff != 0 else []
+                        if cf_diff != 0:
+                            diff_parts.append(_term(cf_diff, snap.all_names[free_idx], mode))
+                        x_expr = " ".join(diff_parts).lstrip("+").strip() or "0"
+                        parts.append(f"<li>${_tex_var(f'a{orig_idx+1}')} = {a_expr}$ (từ từ vựng)</li>")
+                        parts.append(f"<li>$x_{{{orig_idx+1}}} = {a_name} - {b_name_tex} = {a_expr} - {b_name_tex} = {x_expr}$</li>")
+                        continue
                 const = Fraction(0)
                 terms = []
                 for si, mc in mapping:
@@ -795,6 +862,94 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 
 
 # ---------------------------------------------------------------------------
+# Helpers for aux phase 1 problem description and phase1→phase2 transition
+# ---------------------------------------------------------------------------
+
+def _aux_phase1_problem_html(engine, mode: str) -> str:
+    """Tạo HTML mô tả bài toán bổ trợ x0 dạng ràng buộc chuẩn."""
+    parts: List[str] = []
+    parts.append("<p><b>Bài toán bổ trợ:</b> $\\min\\; x_0$</p>")
+    parts.append("<p style='margin-bottom:4px'>Ràng buộc:</p>")
+    parts.append("<div style='margin-left:24px;font-family:monospace'>$\\left\\{\\begin{array}{l}")
+    constraint_lines: List[str] = []
+    for i, (b_val, row) in enumerate(zip(engine.initial_rhs, engine.initial_rows)):
+        lhs_parts: List[str] = []
+        for j in range(len(engine.std_names)):
+            a = -row.get(j, Fraction(0))
+            if a == 0: continue
+            t = _term(a, engine.all_names[j], mode)
+            if t: lhs_parts.append(t)
+        lhs_str = " ".join(lhs_parts).lstrip("+").strip() or "0"
+        rhs_str = _frac(b_val, mode)
+        constraint_lines.append(f"{lhs_str} - x_0 \\leq {rhs_str}")
+    var_tex = ",\\;".join(_tex_var(nm) for nm in engine.std_names)
+    constraint_lines.append(f"x_0,\\; {var_tex} \\geq 0")
+    parts.append(" \\\\ ".join(constraint_lines))
+    parts.append("\\end{array}\\right.$</div>")
+    return "".join(parts)
+
+
+def _phase2_transition_aux_html(engine, snap1: Snapshot, mode: str) -> str:
+    """Tạo HTML bước chuyển pha 1 bổ trợ → pha 2 với khai triển hàm mục tiêu."""
+    parts: List[str] = []
+    aux_idx = getattr(engine, "phase1_aux_var_index", None)
+    parts.append("<p>Từ vựng cuối pha 1 (sau khi đặt $x_0 = 0$):</p><ul>")
+    for i, (b_val, bas_idx) in enumerate(zip(snap1.rhs, snap1.basis)):
+        row = snap1.rows[i]
+        b_name = _tex_var(snap1.all_names[bas_idx])
+        rhs_str = _frac(b_val, mode)
+        extras: List[str] = []
+        for j, a in sorted(row.items()):
+            if aux_idx is not None and j == aux_idx: continue
+            if a == 0 or j >= len(snap1.all_names): continue
+            t = _term(a, snap1.all_names[j], mode)
+            if t: extras.append(t)
+        expr = rhs_str + (" " + " ".join(extras) if extras else "")
+        parts.append(f"<li>${b_name} = {expr.lstrip('+').strip()}$</li>")
+    parts.append("</ul>")
+
+    # Hàm mục tiêu gốc (chưa thay)
+    is_max = engine.problem.objective_sense == "max"
+    obj_sense_str = "\\min Z'" if is_max else "\\min Z"
+    obj_parts: List[str] = []
+    for j, c in enumerate(engine.std_obj_coeffs):
+        if c == 0 or j >= len(engine.all_names): continue
+        t = _term(c, engine.all_names[j], mode)
+        if t: obj_parts.append(t)
+    obj_expr_raw = " ".join(obj_parts).lstrip("+").strip() or "0"
+
+    # Canonicalize: thay biến cơ sở của snap1 vào hàm mục tiêu
+    bp = {b: i for i, b in enumerate(snap1.basis)}
+    expanded_const = Fraction(0)
+    expanded_terms: Dict[int, Fraction] = {}
+    for j, c in enumerate(engine.std_obj_coeffs):
+        if c == 0: continue
+        if j in bp:
+            ri = bp[j]
+            expanded_const += c * snap1.rhs[ri]
+            for k, a in snap1.rows[ri].items():
+                if aux_idx is not None and k == aux_idx: continue
+                expanded_terms[k] = expanded_terms.get(k, Fraction(0)) + c * a
+        else:
+            expanded_terms[j] = expanded_terms.get(j, Fraction(0)) + c
+
+    exp_parts: List[str] = []
+    if expanded_const != 0:
+        exp_parts.append(_frac(expanded_const, mode))
+    for j in sorted(expanded_terms.keys()):
+        c2 = expanded_terms.get(j, Fraction(0))
+        if c2 == 0 or j >= len(snap1.all_names): continue
+        if aux_idx is not None and j == aux_idx: continue
+        t = _term(c2, snap1.all_names[j], mode)
+        if t: exp_parts.append(t)
+    expanded_expr = " ".join(exp_parts).lstrip("+").strip() or "0"
+
+    parts.append(f"<p>Hàm mục tiêu mới (thay vào từ vựng): "
+                 f"$${obj_sense_str} = {obj_expr_raw} = {expanded_expr}$$</p>")
+    return "".join(parts)
+
+
+# ---------------------------------------------------------------------------
 # Hàm chính
 # ---------------------------------------------------------------------------
 
@@ -824,10 +979,9 @@ def export_report_html(report: SolveReport, mode: str = "Phân số") -> str:
         body_parts.append("<h2>🔧 Pha 1</h2>")
         if has_aux:
             body_parts.append(
-                "<p class='note'>Tồn tại $b_i &lt; 0$ → cần tìm cơ sở khả thi ban đầu bằng bài toán bổ trợ. "
-                "Thêm biến phụ $x_0$ vào tất cả ràng buộc, giải $\\min\\; x_0$; "
-                "xoay $x_0$ vào hàng có $b_i$ âm nhất.</p>"
+                "<p class='note'>Tồn tại $b_i &lt; 0$ → cần tìm cơ sở khả thi ban đầu bằng bài toán bổ trợ.</p>"
             )
+            body_parts.append(_aux_phase1_problem_html(engine, mode))
         elif has_art:
             art_names = [engine.all_names[a] for a in engine.artificial_vars]
             art_str = ", ".join(f"${nm}$" for nm in art_names)
@@ -849,10 +1003,12 @@ def export_report_html(report: SolveReport, mode: str = "Phân số") -> str:
             body_parts.append("<div class='phase-section'>")
             body_parts.append("<h2>🎯 Pha 2 — Giải bài toán gốc</h2>")
             if has_aux:
+                snap1 = report.dantzig.final_snapshot
                 body_parts.append(
-                    "<p class='note'>$x_0 = 0$ → loại $x_0$ khỏi tất cả ràng buộc, "
-                    "thay hàm mục tiêu gốc vào từ vựng hiện tại.</p>"
+                    "<p class='note'>$x_0 = 0$ → loại $x_0$ khỏi tất cả ràng buộc.</p>"
                 )
+                if snap1:
+                    body_parts.append(_phase2_transition_aux_html(engine, snap1, mode))
             elif has_art:
                 body_parts.append(
                     "<p class='note'>$\\min$ bổ trợ $= 0$, các biến độ nhiễu $= 0$ → loại khỏi từ vựng, "
