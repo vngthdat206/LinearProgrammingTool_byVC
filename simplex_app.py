@@ -1479,7 +1479,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         # Tạo chuỗi giải thích từng bước chuẩn hóa:
         #   - Biến tự do / âm được thay thế bằng biến phụ
         #   - Ràng buộc ≥ nhân (-1), ràng buộc = thêm biến bù
-        #   - Hàm max nhân (-1) để đưa về dạng min
+        #   - Bài toán max nhân (-1) để đưa về dạng min
         mode = self.data_mode.get()
         def expr(coeffs, names):
             parts=[]
@@ -1530,10 +1530,10 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         obj_expr=expr(engine.std_obj_coeffs, engine.std_names)
         z_label = "Z'" if engine.problem.objective_sense == "max" else "Z"
         if engine.problem.objective_sense=="min": 
-            lines.append("    Hàm min, giữ nguyên:")
+            lines.append("    Bài toán min, giữ nguyên:")
             lines.append(f"        min Z = {obj_expr}")
         else: 
-            lines.append("    Hàm max → đặt Z' = −Z, min Z' = −max Z:")
+            lines.append("    Bài toán max → đặt Z' = −Z, min Z' = −max Z:")
             lines.append(f"        min Z' = {obj_expr}")
         lines+=["","=========================",f"*Dạng chuẩn của bài toán:","=========================",f"    min {z_label} = {obj_expr}","    {"]
         for i,row in enumerate(engine.std_constraints):
@@ -1694,7 +1694,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         mode=self.data_mode.get(); free_vars=report.multiple_optimal_vars or []
         if not free_vars: return []
         param_name=snapshot.all_names[free_vars[0]]
-        lines=[f"  Do hệ số trước {param_name} bằng 0. Bài toán có vô số nghiệm.\n  Cho các biến mục tiêu bằng 0:","",f"    z = {fmt_num(snapshot.obj_const,mode)}"]
+        lines=[f"  Do hệ số trước {param_name} bằng 0. Bài toán có vô số nghiệm.\n  Cho các biến không cơ sở bằng 0:","",f"    z = {fmt_num(snapshot.obj_const,mode)}"]
         def row_expr(ri):
             terms=[(snapshot.rows[ri].get(fv,Fraction(0)),snapshot.all_names[fv]) for fv in free_vars if snapshot.rows[ri].get(fv,Fraction(0))!=0]
             return self._linear_text(snapshot.rhs[ri],terms,mode)
@@ -1729,11 +1729,11 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         #   - Với mỗi bước: in bảng từ vựng trước xoay (có highlight) → ghi chú bước → bảng sau xoay
         #   - In trạng thái kết thúc: tối ưu / không giới nội / xoay vòng
         if not trace.steps:
-            self.output.insert(tk.END,"Từ vựng ban đầu:\n","h2")
+            self.output.insert(tk.END,"Từ vựng xuất phát:\n","h2")
             if trace.final_snapshot: self._insert_snapshot(trace.final_snapshot,"")
             return
         for step in trace.steps:
-            t="Từ vựng ban đầu:" if step.iteration==1 else f"Bước {step.iteration} trước xoay:"
+            t="Từ vựng xuất phát:" if step.iteration==1 else f"Bước {step.iteration} trước xoay:"
             self._insert_snapshot(step.before,t,
                 tags={"entering":step.before.all_names[step.entering] if step.entering is not None else None,"pivot_row":step.leaving_row} if step.entering is not None else None)
             self.output.insert(tk.END,"\n")
@@ -1783,7 +1783,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 inf_msg = "z_max = −∞" if is_max else "z_min = +∞"
                 self.output.insert(tk.END,
                     f"  Vô nghiệm: sau Pha 1, x0 vẫn còn trong cơ sở (x0 > 0)\n"
-                    f"  → miền chấp nhận được rỗng → {inf_msg}.\n","warn")
+                    f"  → miền chấp nhận được rỗng → Giá trị tối ưu là {inf_msg}.\n","warn")
                 return
             if report.phase2_trace is not None:
                 # In bước chuyển sang pha 2
@@ -1803,7 +1803,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 self._render_trace("Pha 2",report.phase2_trace)
             else:
                 inf_msg = "z_max = −∞" if is_max else "z_min = +∞"
-                self.output.insert(tk.END,f"\nKẾT LUẬN\n  Vô nghiệm → {inf_msg}.\n","warn"); return
+                self.output.insert(tk.END,f"\nKẾT LUẬN\n  Vô nghiệm → Giá trị tối ưu là {inf_msg}.\n","warn"); return
 
         elif engine.artificial_vars:
             # ── Pha 1 cổ điển: biến độ nhiễu từ ràng buộc = ────────────
@@ -1826,7 +1826,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 self.output.insert(tk.END,
                     f"  Vô nghiệm: Pha 1 kết thúc với hàm bổ trợ > 0\n"
                     f"  → biến độ nhiễu ({', '.join(art_names)}) không thể đưa ra khỏi cơ sở\n"
-                    f"  → {inf_msg}.\n","warn")
+                    f"  → Giá trị tối ưu là {inf_msg}.\n","warn")
                 return
             if report.phase2_trace is not None:
                 self.output.insert(tk.END,
@@ -1839,7 +1839,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 self._render_trace("Pha 2",report.phase2_trace)
             else:
                 inf_msg = "z_max = −∞" if is_max else "z_min = +∞"
-                self.output.insert(tk.END,f"\nKẾT LUẬN\n  Vô nghiệm → {inf_msg}.\n","warn"); return
+                self.output.insert(tk.END,f"\nKẾT LUẬN\n  Vô nghiệm → Giá trị tối ưu là {inf_msg}.\n","warn"); return
 
         else:
             # ── Không cần Pha 1 ─────────────────────────────────────────
@@ -1881,11 +1881,11 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             if is_max:
                 self.output.insert(tk.END,
                     f"  Bài toán có vô số nghiệm tối ưu.\n"
-                    f"  z* = max Z = −(min Z') = −({fmt_num(obj_std,mode)}) = {fmt_num(obj_orig,mode)}\n")
+                    f"  Giá trị tối ưu là z* = max Z = −(min Z') = −({fmt_num(obj_std,mode)}) = {fmt_num(obj_orig,mode)}\n")
             else:
                 self.output.insert(tk.END,
                     f"  Bài toán có vô số nghiệm tối ưu.\n"
-                    f"  z* = {fmt_num(obj_orig,mode)}\n","note")
+                    f"  Giá trị tối ưu là z* = {fmt_num(obj_orig,mode)}\n","note")
             for line in self._format_multiple_optimal_conclusion(engine,final,report):
                 self.output.insert(tk.END,line+"\n","note")
         else:
@@ -1894,12 +1894,12 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             if is_max:
                 self.output.insert(tk.END,
                     f"  Tối ưu ({method_lbl}).\n"
-                    f"  z* = max Z = −(min Z') = −({fmt_num(obj_std,mode)}) = {fmt_num(obj_orig,mode)}\n",
+                    f"  Giá trị tối ưu là z* = max Z = −(min Z') = −({fmt_num(obj_std,mode)}) = {fmt_num(obj_orig,mode)}\n",
                     "note")
             else:
                 self.output.insert(tk.END,
                     f"  Tối ưu ({method_lbl}).\n"
-                    f"  z* = {fmt_num(obj_orig,mode)}\n",
+                    f"  Giá trị tối ưu là z* = {fmt_num(obj_orig,mode)}\n",
                     "note")
             n_orig = len(engine.problem.var_signs)
             sol_strs = [fmt_num(report.solution_orig.get(i, Fraction(0)), mode) for i in range(n_orig)]
