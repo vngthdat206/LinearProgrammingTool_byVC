@@ -30,7 +30,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         self.n_constraints = tk.IntVar(value=3)
         self.data_mode = tk.StringVar(value="Phân số")
         self.method_preference = tk.StringVar(value="Dantzig Simplex")
-        self.demo_preset_var = tk.StringVar(value="Ví dụ giải bằng 2 pha")
+        self.demo_preset_var = tk.StringVar(value="Ví dụ duy nhất nghiệm (Dantzig / Bland)")
         self.need_aux_phase1 = False # cờ cho biết có cần biến phụ để giải pha 1 hay không
         self.phase1_aux_var_index: Optional[int] = None # chỉ số của biến phụ nếu cần thiết
 
@@ -314,10 +314,18 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         demo_combo = ttk.Combobox(
             btns,
             textvariable=self.demo_preset_var,
-            values=["Ví dụ giải bằng 2 pha",
-                    "Ví dụ giải bài toán xoay vòng",
-                    "Ví dụ giải bài toán vô số nghiệm",
-                    "Ví dụ 3 biến (trực quan 3D)"],
+            values=[
+                "Ví dụ duy nhất nghiệm (Dantzig / Bland)",
+                "Ví dụ duy nhất nghiệm (hai pha)",
+                "Ví dụ không giới nội (Dantzig / Bland)",
+                "Ví dụ không giới nội (hai pha)",
+                "Ví dụ vô số nghiệm (Dantzig / Bland)",
+                "Ví dụ vô số nghiệm (hai pha)",
+                "Ví dụ vô nghiệm (hai pha)",
+                "Ví dụ xoay vòng (Dantzig → Bland)",
+                "Ví dụ 2 biến (trực quan 2D)",
+                "Ví dụ 3 biến (trực quan 3D)",
+            ],
             state="readonly", width=28,
         )
         demo_combo.grid(row=0, column=1, sticky="ew", padx=(0, 6))
@@ -508,85 +516,196 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
     def fill_demo(self):
         preset = self.demo_preset_var.get().strip()
-        if preset == "Ví dụ giải bài toán xoay vòng":
-            self._fill_demo_cycle()
-        elif preset == "Ví dụ giải bài toán vô số nghiệm":
-            self._fill_demo_multiple_optimal()
-        elif preset == "Ví dụ 3 biến (trực quan 3D)":
-            self._fill_demo_3var()
+        _map = {
+            "Ví dụ duy nhất nghiệm (Dantzig / Bland)": self._fill_demo_unique_dantzig,
+            "Ví dụ duy nhất nghiệm (hai pha)":          self._fill_demo_unique_two_phase,
+            "Ví dụ không giới nội (Dantzig / Bland)":   self._fill_demo_unbounded_dantzig,
+            "Ví dụ không giới nội (hai pha)":            self._fill_demo_unbounded_two_phase,
+            "Ví dụ vô số nghiệm (Dantzig / Bland)":     self._fill_demo_multiple_dantzig,
+            "Ví dụ vô số nghiệm (hai pha)":              self._fill_demo_multiple_two_phase,
+            "Ví dụ vô nghiệm (hai pha)":                 self._fill_demo_infeasible_two_phase,
+            "Ví dụ xoay vòng (Dantzig → Bland)":        self._fill_demo_cycle,
+            "Ví dụ 2 biến (trực quan 2D)":               self._fill_demo_2var,
+            "Ví dụ 3 biến (trực quan 3D)":               self._fill_demo_3var,
+        }
+        handler = _map.get(preset)
+        if handler:
+            handler()
         else:
-            self._fill_demo_two_phase()
+            self._fill_demo_unique_dantzig()
 
-    def _fill_demo_two_phase(self):
-        self.n_vars.set(2); self.n_constraints.set(3)
-        self.objective_sense.set("min"); self._build_inputs()
-        for i, v in enumerate(["5", "-7"]):
-            self.obj_entries[i].delete(0, tk.END)
-            self.obj_entries[i].insert(0, v)
-        for cb in self.var_signs:
-            cb.set("≥0")
-        data = [(["-4","1"],"≤","-2"),(["1","1"],"≤","5"),(["−1","−1"],"≤","-1")]
-        for i,(c,s,r) in enumerate(data):
-            for j,e in enumerate(self.constraint_entries[i]):
-                e.delete(0,tk.END); e.insert(0,c[j])
+    # ──────────────────────────────────────────────────────────────────────────
+    # Các hàm điền ví dụ mẫu (10 bài toán)
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _apply_demo(self, n_vars, n_cons, sense, obj, signs, constraints):
+        """Hàm tiện ích: thiết lập kích thước, điền dữ liệu vào giao diện."""
+        self.n_vars.set(n_vars); self.n_constraints.set(n_cons)
+        self.objective_sense.set(sense); self._build_inputs()
+        for i, v in enumerate(obj):
+            self.obj_entries[i].delete(0, tk.END); self.obj_entries[i].insert(0, v)
+        for i, sg in enumerate(signs):
+            self.var_signs[i].set(sg)
+        for i, (c, s, r) in enumerate(constraints):
+            for j, e in enumerate(self.constraint_entries[i]):
+                e.delete(0, tk.END); e.insert(0, c[j])
             self.constraint_senses[i].set(s)
-            self.constraint_rhs[i].delete(0,tk.END)
-            self.constraint_rhs[i].insert(0,r)
+            self.constraint_rhs[i].delete(0, tk.END)
+            self.constraint_rhs[i].insert(0, r)
+
+    def _fill_demo_unique_dantzig(self):
+        # Duy nhất nghiệm, tất cả ràng buộc ≤, b_i ≥ 0 → không cần pha 1
+        # max Z = 3x1 + 5x2
+        # 2x1 + x2 ≤ 14,  x1 + 2x2 ≤ 14,  x1 + x2 ≤ 8
+        # → tối ưu duy nhất tại (2, 6), Z* = 36
+        self._apply_demo(
+            n_vars=2, n_cons=3, sense="max",
+            obj=["3", "5"], signs=["≥0", "≥0"],
+            constraints=[
+                (["2", "1"], "≤", "14"),
+                (["1", "2"], "≤", "14"),
+                (["1", "1"], "≤",  "8"),
+            ],
+        )
+
+    def _fill_demo_unique_two_phase(self):
+        # Duy nhất nghiệm, có ràng buộc ≥ → cần pha 1 (b_i âm sau chuyển chuẩn)
+        # min Z = 5x1 - 7x2
+        # -4x1 + x2 ≤ -2  (tương đương 4x1 - x2 ≥ 2)
+        #   x1 + x2 ≤  5
+        #  -x1 -  x2 ≤ -1  (tương đương x1 + x2 ≥ 1)
+        # → tối ưu duy nhất tại (2, 3), Z* = -11
+        self._apply_demo(
+            n_vars=2, n_cons=3, sense="min",
+            obj=["5", "-7"], signs=["≥0", "≥0"],
+            constraints=[
+                (["-4",  "1"], "≤", "-2"),
+                ([ "1",  "1"], "≤",  "5"),
+                (["-1", "-1"], "≤", "-1"),
+            ],
+        )
+
+    def _fill_demo_unbounded_dantzig(self):
+        # Không giới nội, ràng buộc ≤, b_i ≥ 0 → không cần pha 1
+        # max Z = x1 + x2
+        # -x1 + x2 ≤ 1,  x1 - 2x2 ≤ 2
+        # → tăng x1 tùy ý → Z không bị chặn → unbounded
+        self._apply_demo(
+            n_vars=2, n_cons=2, sense="max",
+            obj=["1", "1"], signs=["≥0", "≥0"],
+            constraints=[
+                (["-1",  "1"], "≤", "1"),
+                ([ "1", "-2"], "≤", "2"),
+            ],
+        )
+
+    def _fill_demo_unbounded_two_phase(self):
+        # Không giới nội, có ràng buộc ≥ → pha 1 thành công, pha 2 phát hiện unbounded
+        # min Z = -2x1 - x2
+        # x1 - x2 ≥ 1  (b âm sau chuẩn hóa → cần pha 1)
+        # x1 + x2 ≥ 2
+        # → miền khả thi không bị chặn theo hướng (x1→+∞) với Z→-∞
+        self._apply_demo(
+            n_vars=2, n_cons=2, sense="min",
+            obj=["-2", "-1"], signs=["≥0", "≥0"],
+            constraints=[
+                (["1", "-1"], "≥", "1"),
+                (["1",  "1"], "≥", "2"),
+            ],
+        )
+
+    def _fill_demo_multiple_dantzig(self):
+        # Vô số nghiệm, ràng buộc ≤, b_i ≥ 0 → không cần pha 1
+        # max Z = 2x1 + 4x2
+        # x1 + 2x2 ≤ 6,  x1 ≤ 4,  x2 ≤ 3
+        # → đường đồng mức song song với RB1 → cạnh tối ưu từ (0,3) đến (2,2) → vô số nghiệm
+        # Z* = 12
+        self._apply_demo(
+            n_vars=2, n_cons=3, sense="max",
+            obj=["2", "4"], signs=["≥0", "≥0"],
+            constraints=[
+                (["1", "2"], "≤", "6"),
+                (["1", "0"], "≤", "4"),
+                (["0", "1"], "≤", "3"),
+            ],
+        )
+
+    def _fill_demo_multiple_two_phase(self):
+        # Vô số nghiệm, có ràng buộc = → biến độ nhiễu pha 1 (cổ điển)
+        # min Z = x1 + 2x2
+        # x1 + 2x2 = 8  (đẳng thức → cần biến độ nhiễu pha 1)
+        # x1 + x2  ≤ 6,  x1 ≤ 5
+        # → đường mục tiêu trùng ràng buộc đẳng thức → vô số nghiệm, Z* = 8
+        self._apply_demo(
+            n_vars=2, n_cons=3, sense="min",
+            obj=["1", "2"], signs=["≥0", "≥0"],
+            constraints=[
+                (["1", "2"], "=", "8"),
+                (["1", "1"], "≤", "6"),
+                (["1", "0"], "≤", "5"),
+            ],
+        )
+
+    def _fill_demo_infeasible_two_phase(self):
+        # Vô nghiệm, pha 1 kết thúc với hàm bổ trợ > 0
+        # min Z = x1 + x2
+        # x1 + x2 ≤ 4,  x1 + x2 ≥ 6  → mâu thuẫn → vô nghiệm
+        # (ràng buộc ≥ → b âm sau chuẩn hóa → cần pha 1)
+        self._apply_demo(
+            n_vars=2, n_cons=2, sense="min",
+            obj=["1", "1"], signs=["≥0", "≥0"],
+            constraints=[
+                (["1", "1"], "≤", "4"),
+                (["1", "1"], "≥", "6"),
+            ],
+        )
 
     def _fill_demo_cycle(self):
-        self.n_vars.set(4); self.n_constraints.set(3)
-        self.objective_sense.set("min"); self._build_inputs()
-        for i,v in enumerate(["-10","57","9","24"]):
-            self.obj_entries[i].delete(0,tk.END); self.obj_entries[i].insert(0,v)
-        for cb in self.var_signs: cb.set("≥0")
-        data=[
-            (["0.5","-5.5","-2.5","9"],"≤","0"),
-            (["0.5","-1.5","-0.5","1"],"≤","0"),
-            (["1","0","0","0"],"≤","1"),
-        ]
-        for i,(c,s,r) in enumerate(data):
-            for j,e in enumerate(self.constraint_entries[i]):
-                e.delete(0,tk.END); e.insert(0,c[j])
-            self.constraint_senses[i].set(s)
-            self.constraint_rhs[i].delete(0,tk.END)
-            self.constraint_rhs[i].insert(0,r)
+        # Xoay vòng: ví dụ Beale (1955) — Dantzig lặp vô hạn, Bland thoát được
+        # min Z = -10x1 + 57x2 + 9x3 + 24x4
+        # 1/2 x1 - 11/2 x2 - 5/2 x3 + 9x4 ≤ 0
+        # 1/2 x1 -  3/2 x2 - 1/2 x3 +  x4 ≤ 0
+        #      x1                         ≤ 1
+        self._apply_demo(
+            n_vars=4, n_cons=3, sense="min",
+            obj=["-10", "57", "9", "24"], signs=["≥0"] * 4,
+            constraints=[
+                (["1/2", "-11/2", "-5/2", "9"], "≤", "0"),
+                (["1/2",  "-3/2", "-1/2", "1"], "≤", "0"),
+                (["1",      "0",    "0",  "0"], "≤", "1"),
+            ],
+        )
 
-    def _fill_demo_multiple_optimal(self):
-        self.n_vars.set(3); self.n_constraints.set(4)
-        self.objective_sense.set("max"); self._build_inputs()
-        for i,v in enumerate(["-3","1","1"]):
-            self.obj_entries[i].delete(0,tk.END); self.obj_entries[i].insert(0,v)
-        for cb in self.var_signs: cb.set("≥0")
-        data=[
-            (["1","-1","0"],"≤","0"),
-            (["-2","0","1"],"≤","1"),
-            (["0","-2","1"],"≤","2"),
-            (["1","1","-1"],"≤","6"),
-        ]
-        for i,(c,s,r) in enumerate(data):
-            for j,e in enumerate(self.constraint_entries[i]):
-                e.delete(0,tk.END); e.insert(0,c[j])
-            self.constraint_senses[i].set(s)
-            self.constraint_rhs[i].delete(0,tk.END)
-            self.constraint_rhs[i].insert(0,r)
+    def _fill_demo_2var(self):
+        # 2 biến — minh họa trực quan 2D
+        # max Z = 3x1 + 2x2
+        # x1 + x2 ≤ 4,  x1 + 3x2 ≤ 6,  x1 ≤ 3
+        # → miền chấp nhận đẹp, đỉnh tối ưu tại (3, 1), Z* = 11
+        self._apply_demo(
+            n_vars=2, n_cons=3, sense="max",
+            obj=["3", "2"], signs=["≥0", "≥0"],
+            constraints=[
+                (["1", "1"], "≤", "4"),
+                (["1", "3"], "≤", "6"),
+                (["1", "0"], "≤", "3"),
+            ],
+        )
 
     def _fill_demo_3var(self):
-        self.n_vars.set(3); self.n_constraints.set(3)
-        self.objective_sense.set("max"); self._build_inputs()
-        for i,v in enumerate(["5","4","3"]):
-            self.obj_entries[i].delete(0,tk.END); self.obj_entries[i].insert(0,v)
-        for cb in self.var_signs: cb.set("≥0")
-        data=[
-            (["6","4","2"],"≤","240"),
-            (["3","5","5"],"≤","270"),
-            (["5","3","6"],"≤","420"),
-        ]
-        for i,(c,s,r) in enumerate(data):
-            for j,e in enumerate(self.constraint_entries[i]):
-                e.delete(0,tk.END); e.insert(0,c[j])
-            self.constraint_senses[i].set(s)
-            self.constraint_rhs[i].delete(0,tk.END)
-            self.constraint_rhs[i].insert(0,r)
+        # 3 biến — minh họa trực quan 3D
+        # max Z = 5x1 + 4x2 + 3x3
+        # 6x1 + 4x2 + 2x3 ≤ 240
+        # 3x1 + 5x2 + 5x3 ≤ 270
+        # 5x1 + 3x2 + 6x3 ≤ 420
+        self._apply_demo(
+            n_vars=3, n_cons=3, sense="max",
+            obj=["5", "4", "3"], signs=["≥0"] * 3,
+            constraints=[
+                (["6", "4", "2"], "≤", "240"),
+                (["3", "5", "5"], "≤", "270"),
+                (["5", "3", "6"], "≤", "420"),
+            ],
+        )
 
     def _collect_problem(self) -> ProblemData:
         # Thu thập toàn bộ dữ liệu từ giao diện nhập liệu và đóng gói thành ProblemData.
@@ -1621,9 +1740,10 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             self.output.insert(tk.END,"\n")
             if report.status=="infeasible":
                 self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
+                inf_msg = "z_max = −∞" if is_max else "z_min = +∞"
                 self.output.insert(tk.END,
-                    "  Vô nghiệm: sau Pha 1, x0 vẫn còn trong cơ sở (x0 > 0)\n"
-                    "  → miền chấp nhận được rỗng.\n","warn")
+                    f"  Vô nghiệm: sau Pha 1, x0 vẫn còn trong cơ sở (x0 > 0)\n"
+                    f"  → miền chấp nhận được rỗng → {inf_msg}.\n","warn")
                 return
             if report.phase2_trace is not None:
                 # In bước chuyển sang pha 2
@@ -1642,7 +1762,8 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                     "============================\n","h2")
                 self._render_trace("Pha 2",report.phase2_trace)
             else:
-                self.output.insert(tk.END,"\nKẾT LUẬN\n  Vô nghiệm.\n","warn"); return
+                inf_msg = "z_max = −∞" if is_max else "z_min = +∞"
+                self.output.insert(tk.END,f"\nKẾT LUẬN\n  Vô nghiệm → {inf_msg}.\n","warn"); return
 
         elif engine.artificial_vars:
             # ── Pha 1 cổ điển: biến độ nhiễu từ ràng buộc = ────────────
@@ -1661,9 +1782,11 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             self.output.insert(tk.END,"\n")
             if report.status=="infeasible":
                 self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
+                inf_msg = "z_max = −∞" if is_max else "z_min = +∞"
                 self.output.insert(tk.END,
                     f"  Vô nghiệm: Pha 1 kết thúc với hàm bổ trợ > 0\n"
-                    f"  → biến độ nhiễu ({', '.join(art_names)}) không thể đưa ra khỏi cơ sở.\n","warn")
+                    f"  → biến độ nhiễu ({', '.join(art_names)}) không thể đưa ra khỏi cơ sở\n"
+                    f"  → {inf_msg}.\n","warn")
                 return
             if report.phase2_trace is not None:
                 self.output.insert(tk.END,
@@ -1675,7 +1798,8 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                     f"  Thay hàm mục tiêu gốc vào từ vựng hiện tại.\n\n","note")
                 self._render_trace("Pha 2",report.phase2_trace)
             else:
-                self.output.insert(tk.END,"\nKẾT LUẬN\n  Vô nghiệm.\n","warn"); return
+                inf_msg = "z_max = −∞" if is_max else "z_min = +∞"
+                self.output.insert(tk.END,f"\nKẾT LUẬN\n  Vô nghiệm → {inf_msg}.\n","warn"); return
 
         else:
             # ── Không cần Pha 1 ─────────────────────────────────────────
