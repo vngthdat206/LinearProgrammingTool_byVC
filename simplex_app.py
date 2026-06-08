@@ -317,8 +317,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 "Ví dụ vô số nghiệm (hai pha)",
                 "Ví dụ vô nghiệm (hai pha)",
                 "Ví dụ xoay vòng (Dantzig → Bland)",
-                "Ví dụ 2 biến (trực quan 2D)",
-                "Ví dụ 3 biến (trực quan 3D)",
+                "Ví dụ xoay vòng (hai pha → Dantzig → Bland)",
             ],
             state="readonly", width=28,
         )
@@ -557,16 +556,15 @@ class SimplexApp(Viz3DMixin, tk.Tk):
     def fill_demo(self):
         preset = self.demo_preset_var.get().strip()
         _map = {
-            "Ví dụ duy nhất nghiệm (Dantzig / Bland)": self._fill_demo_unique_dantzig,
-            "Ví dụ duy nhất nghiệm (hai pha)":          self._fill_demo_unique_two_phase,
-            "Ví dụ không giới nội (Dantzig / Bland)":   self._fill_demo_unbounded_dantzig,
-            "Ví dụ không giới nội (hai pha)":            self._fill_demo_unbounded_two_phase,
-            "Ví dụ vô số nghiệm (Dantzig / Bland)":     self._fill_demo_multiple_dantzig,
-            "Ví dụ vô số nghiệm (hai pha)":              self._fill_demo_multiple_two_phase,
-            "Ví dụ vô nghiệm (hai pha)":                 self._fill_demo_infeasible_two_phase,
-            "Ví dụ xoay vòng (Dantzig → Bland)":        self._fill_demo_cycle,
-            "Ví dụ 2 biến (trực quan 2D)":               self._fill_demo_2var,
-            "Ví dụ 3 biến (trực quan 3D)":               self._fill_demo_3var,
+            "Ví dụ duy nhất nghiệm (Dantzig / Bland)":     self._fill_demo_unique_dantzig,
+            "Ví dụ duy nhất nghiệm (hai pha)":             self._fill_demo_unique_two_phase,
+            "Ví dụ không giới nội (Dantzig / Bland)":      self._fill_demo_unbounded_dantzig,
+            "Ví dụ không giới nội (hai pha)":              self._fill_demo_unbounded_two_phase,
+            "Ví dụ vô số nghiệm (Dantzig / Bland)":        self._fill_demo_multiple_dantzig,
+            "Ví dụ vô số nghiệm (hai pha)":                self._fill_demo_multiple_two_phase,
+            "Ví dụ vô nghiệm (hai pha)":                   self._fill_demo_infeasible_two_phase,
+            "Ví dụ xoay vòng (Dantzig → Bland)":           self._fill_demo_cycle,
+            "Ví dụ xoay vòng (hai pha → Dantzig → Bland)": self._fill_demo_cycle_2,
         }
         handler = _map.get(preset)
         if handler:
@@ -716,34 +714,19 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             ],
         )
 
-    def _fill_demo_2var(self):
-        # 2 biến — minh họa trực quan 2D
-        # max Z = 3x1 + 2x2
-        # x1 + x2 ≤ 4,  x1 + 3x2 ≤ 6,  x1 ≤ 3
-        # → miền chấp nhận đẹp, đỉnh tối ưu tại (3, 1), Z* = 11
+    def _fill_demo_cycle_2(self):
+        # Xoay vòng: ví dụ Beale (1955) — Dantzig lặp vô hạn, Bland thoát được
+        # min Z = -10x1 + 57x2 + 9x3 + 24x4
+        # 1/2 x1 - 11/2 x2 - 5/2 x3 + 9x4 = 0
+        # 1/2 x1 -  3/2 x2 - 1/2 x3 +  x4 = 0
+        #      x1                         ≤ 1
         self._apply_demo(
-            n_vars=2, n_cons=3, sense="max",
-            obj=["3", "2"], signs=["≥0", "≥0"],
+            n_vars=5, n_cons=3, sense="max",
+            obj=["3/4", "-20", "1/2", "-6", "0"], signs=["≥0"] * 5,
             constraints=[
-                (["1", "1"], "≤", "4"),
-                (["1", "3"], "≤", "6"),
-                (["1", "0"], "≤", "3"),
-            ],
-        )
-
-    def _fill_demo_3var(self):
-        # 3 biến — minh họa trực quan 3D
-        # max Z = 5x1 + 4x2 + 3x3
-        # 6x1 + 4x2 + 2x3 ≤ 240
-        # 3x1 + 5x2 + 5x3 ≤ 270
-        # 5x1 + 3x2 + 6x3 ≤ 420
-        self._apply_demo(
-            n_vars=3, n_cons=3, sense="max",
-            obj=["5", "4", "3"], signs=["≥0"] * 3,
-            constraints=[
-                (["6", "4", "2"], "≤", "240"),
-                (["3", "5", "5"], "≤", "270"),
-                (["5", "3", "6"], "≤", "420"),
+                (["1/4", "-8", "-1", "9", "0"], "≤", "0"),
+                (["1/2", "-12", "-1/2", "3", "0"], "≤", "0"),
+                (["0", "0", "0", "0", "-1"], "≤", "-1"),
             ],
         )
 
@@ -1752,7 +1735,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                     last_entering = trace.steps[-1].before.all_names[last_step.entering]
             reason = f" (có biến vào {last_entering} nhưng không có biến ra)" if last_entering else ""
             self.output.insert(tk.END,f"  Bài toán không giới nội{reason}.\n","warn")
-        elif trace.status=="cycle": self.output.insert(tk.END,"  Dantzig lặp → chuyển sang Bland.\n","warn")
+        elif trace.status=="cycle": self.output.insert(tk.END,"  Phát hiện xoay vòng → thuật toán không thể tiếp tục.\n","warn")
 
     def _render_result(self, report):
         self.output.delete("1.0",tk.END)
@@ -1774,9 +1757,13 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 "  Thêm x0 vào tất cả các ràng buộc: Ax − x0 ≤ b, x0, x1, ... ≥ 0\n"
                 "  Xoay x0 vào: biến ra là hàng có b_i âm nhất.\n\n","note")
             self._render_trace("Pha 1",report.dantzig)
-            if report.phase1_bland is not None and report.phase1_bland is not report.dantzig:
-                self.output.insert(tk.END,"\n🔄 Bland (sau Dantzig xoay vòng ở Pha 1)\n","h2")
-                self._render_trace("Pha 1 - Bland",report.phase1_bland)
+            # Nếu đang chọn giải Dantzig mà xoay vòng thì dừng luôn
+            if report.dantzig.status == "cycle":
+                self.output.insert(tk.END, "\nKẾT LUẬN\n", "h2")
+                self.output.insert(tk.END, "  Bài toán không thể giải bằng Dantzig do xoay vòng.\n", "warn")
+                self.output.insert(tk.END, "  Từ vựng đã quay lại trạng thái trước đó sau các bước, thuật toán lặp vô hạn.\n", "note")
+                self.output.insert(tk.END, "  Hãy chuyển sang phương pháp Bland để giải quyết.\n", "warn")
+                return
             self.output.insert(tk.END,"\n")
             if report.status=="infeasible":
                 self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
@@ -1800,7 +1787,26 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                     "\n============================\n"
                     " Pha 2: Giải bài toán gốc\n"
                     "============================\n","h2")
-                self._render_trace("Pha 2",report.phase2_trace)
+                # Nếu Pha 2 Dantzig cycle và đã fallback sang Bland: phase1_bland chứa trace Dantzig (cycle)
+                phase2_dantzig_cycle = (
+                    report.phase1_bland is not None
+                    and report.phase1_bland.cycle_detected
+                    and report.used_method == "bland"
+                )
+                if phase2_dantzig_cycle:
+                    self._render_trace("Pha 2 - Dantzig", report.phase1_bland)
+                    self.output.insert(tk.END, "\n  ⚠️ Dantzig xoay vòng ở Pha 2 → chuyển sang Bland.\n", "warn")
+                    self.output.insert(tk.END,
+                        "\n============================\n"
+                        " Pha 2 (Bland): Giải bài toán gốc\n"
+                        "============================\n","h2")
+                self._render_trace("Pha 2", report.phase2_trace)
+                if report.phase2_trace.status == "cycle":
+                    self.output.insert(tk.END, "\nKẾT LUẬN\n", "h2")
+                    self.output.insert(tk.END, "  ⚠️ Bài toán không thể giải bằng Dantzig do xoay vòng (Cycling) ở Pha 2!\n", "warn")
+                    self.output.insert(tk.END, "  Hàm mục tiêu rơi vào vòng lặp vô hạn giữa các từ vựng suy biến.\n", "note")
+                    self.output.insert(tk.END, "  👉 Hãy chuyển sang phương pháp Bland hoặc Hai pha để giải quyết.\n", "warn")
+                    return
             else:
                 inf_msg = "z_max = −∞" if is_max else "z_min = +∞"
                 self.output.insert(tk.END,f"\nKẾT LUẬN\n  Vô nghiệm → Giá trị tối ưu là {inf_msg}.\n","warn"); return
@@ -1816,9 +1822,11 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 f"  Ràng buộc đẳng thức → thêm biến độ nhiễu: {', '.join(art_names)}\n"
                 f"  Bài toán bổ trợ: min {' + '.join(art_names)}\n\n","note")
             self._render_trace("Pha 1",report.dantzig)
-            if report.phase1_bland is not None and report.phase1_bland is not report.dantzig:
-                self.output.insert(tk.END,"\n🔄 Bland (sau Dantzig xoay vòng ở Pha 1)\n","h2")
-                self._render_trace("Pha 1 - Bland",report.phase1_bland)
+            if report.dantzig.status == "cycle":
+                self.output.insert(tk.END, "\nKẾT LUẬN\n", "h2")
+                self.output.insert(tk.END, "  ⚠️ Bài toán không thể giải bằng Dantzig do xoay vòng (Cycling) trong quá trình loại biến độ nhiễu!\n", "warn")
+                self.output.insert(tk.END, "  👉 Hãy chuyển sang phương pháp Bland hoặc Hai pha để giải quyết.\n", "warn")
+                return
             self.output.insert(tk.END,"\n")
             if report.status=="infeasible":
                 self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
@@ -1836,7 +1844,30 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 self.output.insert(tk.END,
                     f"  min bổ trợ = 0, các biến độ nhiễu ({', '.join(art_names)}) = 0 → loại khỏi từ vựng.\n"
                     f"  Thay hàm mục tiêu gốc vào từ vựng hiện tại.\n\n","note")
+                # Nếu Pha 2 Dantzig cycle và đã fallback sang Bland: phase1_bland chứa trace Dantzig (cycle)
+                phase2_dantzig_cycle = (
+                    report.phase1_bland is not None
+                    and report.phase1_bland.cycle_detected
+                    and report.used_method == "bland"
+                )
+                if phase2_dantzig_cycle:
+                    self._render_trace("Pha 2 - Dantzig", report.phase1_bland)
+                    self.output.insert(tk.END, "\n  ⚠️ Dantzig xoay vòng ở Pha 2 → chuyển sang Bland.\n", "warn")
+                    self.output.insert(tk.END,
+                        "\n============================\n"
+                        " Pha 2 (Bland): Giải bài toán gốc\n"
+                        "============================\n","h2")
+                else:
+                    self.output.insert(tk.END,
+                        "\n============================\n"
+                        " Pha 2: Giải bài toán gốc\n"
+                        "============================\n","h2")
                 self._render_trace("Pha 2",report.phase2_trace)
+                if report.phase2_trace.status == "cycle":
+                    self.output.insert(tk.END, "\nKẾT LUẬN\n", "h2")
+                    self.output.insert(tk.END, "  ⚠️ Bài toán không thể giải bằng Dantzig do xoay vòng (Cycling) ở Pha 2!\n", "warn")
+                    self.output.insert(tk.END, "  👉 Hãy chuyển sang phương pháp Bland hoặc Hai pha để giải quyết.\n", "warn")
+                    return
             else:
                 inf_msg = "z_max = −∞" if is_max else "z_min = +∞"
                 self.output.insert(tk.END,f"\nKẾT LUẬN\n  Vô nghiệm → Giá trị tối ưu là {inf_msg}.\n","warn"); return
@@ -1854,14 +1885,17 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 " Giải bài toán\n"
                 "============================\n","note")
             self._render_trace("Giải bài toán",report.dantzig)
-            if report.bland is not None and report.bland is not report.dantzig:
-                self.output.insert(tk.END,"\n🔄 Bland (sau Dantzig xoay vòng)\n","h2")
-                self._render_trace("Bland",report.bland)
+            if report.dantzig.status == "cycle":
+                self.output.insert(tk.END, "\nKẾT LUẬN\n", "h2")
+                self.output.insert(tk.END, "  ⚠️ Bài toán không thể giải bằng Dantzig do xoay vòng (Cycling)!\n", "warn")
+                self.output.insert(tk.END, "  Từ vựng đã quay lại trạng thái trước đó sau các bước suy biến, thuật toán lặp vô hạn.\n", "note")
+                self.output.insert(tk.END, "  👉 Hãy chuyển sang phương pháp Bland hoặc Hai pha để giải quyết.\n", "warn")
+                return
 
-        final=report.phase2_trace.final_snapshot if report.phase2_trace and report.phase2_trace.final_snapshot else (report.bland.final_snapshot if report.bland and report.bland.final_snapshot else report.dantzig.final_snapshot)
+        final=report.phase2_trace.final_snapshot if report.phase2_trace and report.phase2_trace.final_snapshot else report.dantzig.final_snapshot
 
         # Không giới nội
-        if report.status in ("unbounded",) or (report.bland and report.bland.status=="unbounded"):
+        if report.status in ("unbounded",):
             self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
             if is_max:
                 self.output.insert(tk.END,"  Bài toán không giới nội: z_max = +∞.\n","warn")
@@ -1869,7 +1903,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 self.output.insert(tk.END,"  Bài toán không giới nội: z_min = −∞.\n","warn")
             return
         if report.status=="cycle":
-            self.output.insert(tk.END,"\nKẾT LUẬN\n  Dantzig và Bland đều lặp.\n","warn"); return
+            self.output.insert(tk.END,"\nKẾT LUẬN\n  ⚠️ Bài toán không thể giải bằng phương pháp này do xoay vòng (Cycling).\n","warn"); return
 
         obj_std=report.objective_std or Fraction(0)
         obj_orig=report.objective_orig or Fraction(0)
@@ -1910,7 +1944,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 nm = f"x{i+1}".ljust(var_w)
                 val = val_s.rjust(val_w)
                 self.output.insert(tk.END, f"    {nm} = {val}\n", "note")
-        d=(report.dantzig.degenerate_steps or 0)+((report.bland.degenerate_steps if report.bland else 0) or 0)
+        d=(report.dantzig.degenerate_steps or 0)
         if d: self.output.insert(tk.END,f"  Có {d} bước suy biến.\n","warn")
 
     def _has_aux_phase1(self, engine):
@@ -1951,28 +1985,28 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 if is_disabled:
                     return base_name
                 if priority == key:
-                    return f"{base_name} (Ưu tiên)"
+                    return f"{base_name} (đề xuất)"
                 return base_name
             
             if has_negative:
                 state_d, lbl_d = tk.DISABLED, format_label("Dantzig", "dantzig", True)
                 state_b, lbl_b = tk.DISABLED, format_label("Bland", "bland", True)
                 state_hp, lbl_hp = tk.NORMAL, format_label("Hai Pha", "haipha", False)
-                reason_th = "Thuật toán ưu tiên: Hai Pha (vì tồn tại b_i < 0, bắt buộc dùng bài toán phụ)."
+                reason_th = "Thuật toán đề xuất: Hai Pha (vì tồn tại b_i < 0, bắt buộc dùng bài toán phụ)."
                 default_view = "haipha"
                 
             elif has_zero:
                 state_d, lbl_d = tk.NORMAL, format_label("Dantzig", "dantzig", False)
                 state_b, lbl_b = tk.NORMAL, format_label("Bland", "bland", False)
                 state_hp, lbl_hp = tk.DISABLED, format_label("Hai Pha", "haipha", True)
-                reason_th = "Thuật toán ưu tiên: Bland (vì b_i ≥ 0 nhưng có b_i = 0, ưu tiên Bland)."
+                reason_th = "Thuật toán đề xuất: Bland (vì tồn tại b_i = 0, dễ bị xoay vòng)."
                 default_view = "bland"
                 
             else:
                 state_d, lbl_d = tk.NORMAL, format_label("Dantzig", "dantzig", False)
                 state_b, lbl_b = tk.NORMAL, format_label("Bland", "bland", False)
                 state_hp, lbl_hp = tk.DISABLED, format_label("Hai Pha", "haipha", True)
-                reason_th = "Thuật toán ưu tiên: Dantzig (vì tất cả b_i > 0)."
+                reason_th = "Thuật toán đề xuất: Dantzig (vì tất cả b_i > 0)."
                 default_view = "dantzig"
 
             self.lbl_theory.config(text=reason_th)

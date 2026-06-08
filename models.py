@@ -72,3 +72,4 @@ class SolveReport:
     notes: List[str]
     phase1_bland: Optional[SolveTrace] = None
     phase2_trace: Optional[SolveTrace] = None
+    phase2_dantzig: Optional['SolveTrace'] = None
