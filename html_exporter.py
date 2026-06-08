@@ -19,6 +19,7 @@ from typing import Dict, List, Optional, Tuple
 
 from models import PivotStep, Snapshot, SolveReport, SolveTrace
 from utils import fmt_num
+import locales
 
 import html
 
@@ -111,7 +112,7 @@ def _snapshot_table(
     nonbasic_cols = [j for j in range(len(names)) if j not in basis_set]
 
     # Header
-    header_cells = ["<th class='row-label'></th>", "<th class='rhs-col'>Hằng số</th>"]
+    header_cells = ["<th class='row-label'></th>", f"<th class='rhs-col'>{locales.t('html_constant_col')}</th>"]
     for j in nonbasic_cols:
         nm = names[j]
         css = "pivot-col-head" if nm == entering_name else ""
@@ -179,34 +180,32 @@ def _step_note_html(step: PivotStep, snapshot: Snapshot, mode: str) -> str:
     lines: List[str] = []
 
     if step.status == "phase1_aux_pivot":
-        lines.append(f"<p class='note-rule'>⚙️ <b>Quy tắc Dantzig — Pha 1 (biến phụ)</b></p>")
-        lines.append(f"<p>Biến phụ $x_0$ đóng vai trò biến vào. "
-                     f"Biến ra là hàng có $b_i$ âm nhỏ nhất.</p>")
+        lines.append(f"<p class='note-rule'>⚙️ <b>{locales.t('html_rule_dantzig_p1')}</b></p>")
+        lines.append(f"<p>{locales.t('html_aux_enter')}</p>")
         if step.ratios:
             lines.append("<ul>")
             for ri, bval, bi in step.ratios:
                 lines.append(f"<li>${_tex_var(names[bi])}$: $b = {_frac(bval, mode)}$</li>")
             lines.append("</ul>")
-        lines.append(f"<p>$\\Rightarrow$ Biến vào: ${enter}$ &nbsp;|&nbsp; Biến ra: ${leave}$</p>")
+        lines.append(f"<p>$\\Rightarrow$ {locales.t('html_entering', var=enter)} &nbsp;|&nbsp; {locales.t('html_leaving', var=leave)}</p>")
         if step.pivot_value is not None:
-            lines.append(f"<p>Phần tử xoay: $a_{{{leave},{enter}}} = {_frac(step.pivot_value, mode)}$</p>")
+            lines.append(f"<p>{locales.t('html_pivot')} $a_{{{leave},{enter}}} = {_frac(step.pivot_value, mode)}$</p>")
         if step.degenerate:
-            lines.append("<p class='warn'>⚠️ Bước suy biến ($\\theta = 0$).</p>")
+            lines.append(f"<p class='warn'>{locales.t('html_degenerate')}</p>")
         return "".join(lines)
 
-    lines.append(f"<p class='note-rule'>⚙️ <b>Quy tắc {rule}</b></p>")
+    lines.append(f"<p class='note-rule'>⚙️ <b>{locales.t('html_rule_label', rule=rule)}</b></p>")
     if step.entering is not None:
         coeff = snapshot.obj.get(step.entering, Fraction(0))
         if step.method == "dantzig":
-            lines.append(f"<p>Chọn <b>${enter}$</b> vì có hệ số nhỏ nhất "
-                         f"$= {_frac(coeff, mode)}$ trong hàng mục tiêu.</p>")
+            lines.append(f"<p>{locales.t('html_choose_dantzig', var=enter, coeff=_frac(coeff, mode))}</p>")
         else:
-            lines.append(f"<p>Bland: chọn <b>${enter}$</b> (chỉ số nhỏ nhất trong các biến cải thiện).</p>")
-        lines.append(f"<p>$\\Rightarrow$ Biến vào: ${enter}$</p>")
+            lines.append(f"<p>{locales.t('html_choose_bland', var=enter)}</p>")
+        lines.append(f"<p>$\\Rightarrow$ {locales.t('html_entering', var=enter)}</p>")
 
     if step.ratios:
-        lines.append(f"<p>Bảng tỉ số $\\theta$ tại cột ${enter}$:</p>")
-        lines.append("<table class='ratio-table'><tr><th>Hàng</th><th>$b_i$</th>"
+        lines.append(f"<p>{locales.t('html_ratio_table', var=enter)}</p>")
+        lines.append(f"<table class='ratio-table'><tr><th>{locales.t('html_row')}</th><th>$b_i$</th>"
                      "<th>$a_{{i,enter}}$</th><th>$\\theta = b_i / (-a_{{i,enter}})$</th></tr>")
         for ri, theta, bi in step.ratios:
             a_val = snapshot.rows[ri].get(step.entering, Fraction(0)) if step.entering is not None else Fraction(0)
@@ -215,13 +214,13 @@ def _step_note_html(step: PivotStep, snapshot: Snapshot, mode: str) -> str:
                          f"<td>${_frac(a_val, mode)}$</td>"
                          f"<td>${_frac(theta, mode)}$</td></tr>")
         lines.append("</table>")
-        lines.append(f"<p>$\\Rightarrow$ Biến ra: ${leave}$</p>")
+        lines.append(f"<p>$\\Rightarrow$ {locales.t('html_leaving', var=leave)}</p>")
 
     if step.pivot_value is not None:
-        lines.append(f"<p>Phần tử xoay: "
+        lines.append(f"<p>{locales.t('html_pivot')} "
                      f"$a_{{{leave},{enter}}} = {_frac(step.pivot_value, mode)}$</p>")
     if step.degenerate:
-        lines.append("<p class='warn'>⚠️ Bước suy biến ($\\theta = 0$).</p>")
+        lines.append(f"<p class='warn'>{locales.t('html_degenerate')}</p>")
     return "".join(lines)
 
 
@@ -233,12 +232,12 @@ def _render_trace_html(trace: SolveTrace, mode: str) -> str:
     parts: List[str] = []
     if not trace.steps:
         if trace.final_snapshot:
-            parts.append("<p class='note'>Từ vựng ban đầu (không cần xoay):</p>")
+            parts.append(f"<p class='note'>{locales.t('html_init_dict_no_pivot')}</p>")
             parts.append(_snapshot_table(trace.final_snapshot, mode))
         return "".join(parts)
 
     for step in trace.steps:
-        title = "Từ vựng ban đầu" if step.iteration == 1 else f"Bước {step.iteration} — trước xoay"
+        title = locales.t("html_init_dict") if step.iteration == 1 else locales.t("html_step_before", n=step.iteration)
         parts.append(f"<h4>{title}</h4>")
 
         # Bảng trước xoay (có highlight)
@@ -254,26 +253,26 @@ def _render_trace_html(trace: SolveTrace, mode: str) -> str:
 
         # Bảng sau xoay
         if step.after is not None:
-            parts.append(f"<h4>Sau xoay — Bước {step.iteration}</h4>")
+            parts.append(f"<h4>{locales.t('html_step_after', n=step.iteration)}</h4>")
             parts.append(_snapshot_table(step.after, mode))
 
     # Trạng thái kết thúc
     if trace.status == "optimal":
-        parts.append("<p class='success'>✅ Tất cả hệ số trên hàng mục tiêu đều ≥ 0 → từ vựng hiện tại là tối ưu.</p>")
+        parts.append(f"<p class='success'>{locales.t('html_all_opt')}</p>")
     elif trace.status == "unbounded":
         last_entering = None
         if trace.steps:
             last_step = trace.steps[-1]
             if last_step.status == "unbounded" and last_step.entering is not None:
                 last_entering = trace.steps[-1].before.all_names[last_step.entering]
-        reason = f" (có biến vào ${_tex_var(last_entering)}$ nhưng không có biến ra)" if last_entering else ""
-        parts.append(f"<p class='warn'>⚠️ Bài toán không giới nội{reason}.</p>")
+        reason = locales.t("html_enter_no_leave", var=_tex_var(last_entering)) if last_entering else ""
+        parts.append(f"<p class='warn'>{locales.t('html_unbounded', reason=reason)}</p>")
     elif trace.status == "cycle":
         rule = "Dantzig" if trace.steps and trace.steps[0].method == "dantzig" else "Bland"
         if rule == "Dantzig":
-            parts.append("<p class='warn'>🔄 Dantzig phát hiện xoay vòng → chuyển sang Bland.</p>")
+            parts.append(f"<p class='warn'>{locales.t('html_dantzig_cycle')}</p>")
         else:
-            parts.append("<p class='warn'>🔄 Bland phát hiện xoay vòng.</p>")
+            parts.append(f"<p class='warn'>{locales.t('html_bland_cycle')}</p>")
 
     return "".join(parts)
 
@@ -341,24 +340,23 @@ def _standardization_html(engine, mode: str) -> str:
         nm  = f"x_{idx}"
         if sg == "≤0":
             y_nm = f"y_{idx}"
-            sub_notes.append(f"$\\quad {nm} \\leq 0$: đặt ${y_nm} = -{nm} \\geq 0$")
+            sub_notes.append(f"$\\quad {nm} \\leq 0$: " + locales.t("html_var_neg", y_nm=y_nm, nm=nm))
         elif sg == "tự do":
             a_nm = f"a_{idx}"
             b_nm = f"b_{idx}"
             sub_notes.append(
-                f"$\\quad {nm}$ tự do: đặt ${nm} = {a_nm} - {b_nm}$, "
-                f"$\\;{a_nm},\\, {b_nm} \\geq 0$"
+                f"$\\quad {nm}$ " + locales.t("html_var_free", nm=nm, a_nm=a_nm, b_nm=b_nm)
             )
             
     if sub_notes:
-        parts.append("<p>📌 <b>Bước 1: Thay thế biến không chuẩn</b></p>")
+        parts.append(f"<p>{locales.t('html_std_step1_sub')}</p>")
         for note in sub_notes:
             parts.append(f"<p>{note}</p>")
     else:
-        parts.append("<p>📌 <b>Bước 1: Biến số</b> — tất cả $x_i \\geq 0$, không cần thay thế.</p>")
+        parts.append(f"<p>{locales.t('html_std_step1_ok')}</p>")
 
     # ── Bước 2: Chuẩn hóa ràng buộc ──────────────────────────────────────
-    parts.append("<p>📌 <b>Bước 2: Chuẩn hóa ràng buộc</b></p>")
+    parts.append(f"<p>{locales.t('html_std_step2')}</p>")
 
     std_names_list = getattr(engine, "std_names", None)
     all_names_list = getattr(engine, "all_names", None)
@@ -410,11 +408,11 @@ def _standardization_html(engine, mode: str) -> str:
                 f"<td style='white-space:nowrap' rowspan='2'><b>RB {orig_i+1}</b></td>"
                 f"<td style='white-space:nowrap' rowspan='2'>${orig_lhs} = {orig_rhs}$</td>"
                 f"<td style='white-space:nowrap;color:#0F766E'>$\\Rightarrow\\;{lhs_a} + {slack_a} = {rhs_a_tex}$</td>"
-                f"<td style='color:#475569;font-size:0.88rem'>tách thành RB {orig_i+1}a: thêm $+{slack_a}$</td>"
+                f"<td style='color:#475569;font-size:0.88rem'>{locales.t('html_eq_split_a', i=orig_i+1, w=slack_a)}</td>"
                 f"</tr>"
                 f"<tr>"
                 f"<td style='white-space:nowrap;color:#0F766E'>$\\Rightarrow\\;{lhs_b} + {slack_b} = {rhs_b_tex}$</td>"
-                f"<td style='color:#475569;font-size:0.88rem'>tách thành RB {orig_i+1}b: nhân $(-1)$, thêm $+{slack_b}$</td>"
+                f"<td style='color:#475569;font-size:0.88rem'>{locales.t('html_eq_split_b', i=orig_i+1, w=slack_b)}</td>"
                 f"</tr>"
             )
             table_rows.append(sub_rows)
@@ -433,11 +431,11 @@ def _standardization_html(engine, mode: str) -> str:
             if orig_sense == "≤":
                 orig_rb = f"${orig_lhs} \\leq {orig_rhs}$"
                 std_rb  = f"${lhs_str} + {slack_nm} = {rhs_tex}$"
-                note    = f"thêm biến bù $+{slack_nm}$"
+                note    = locales.t("html_add_slack") + f" $+{slack_nm}$"
             else:  # ≥
                 orig_rb = f"${orig_lhs} \\geq {orig_rhs}$"
                 std_rb  = f"${lhs_str} + {slack_nm} = {rhs_tex}$"
-                note    = f"nhân $(-1)$: $\\geq \\to \\leq$, thêm biến bù $+{slack_nm}$"
+                note    = locales.t("html_neg_to_leq") + f" $+{slack_nm}$"
 
             table_rows.append(
                 f"<tr>"
@@ -452,16 +450,16 @@ def _standardization_html(engine, mode: str) -> str:
         "<table style='border-collapse:collapse;width:100%;margin:8px 0 16px'>"
         "<thead><tr style='background:#EFF6FF'>"
         "<th style='padding:6px 12px;border:1px solid #CBD5E1;text-align:left'>RB</th>"
-        "<th style='padding:6px 12px;border:1px solid #CBD5E1'>Dạng gốc</th>"
-        "<th style='padding:6px 12px;border:1px solid #CBD5E1'>Dạng chuẩn</th>"
-        "<th style='padding:6px 12px;border:1px solid #CBD5E1'>Ghi chú</th>"
+        f"<th style='padding:6px 12px;border:1px solid #CBD5E1'>{locales.t('html_orig_form')}</th>"
+        f"<th style='padding:6px 12px;border:1px solid #CBD5E1'>{locales.t('html_std_form')}</th>"
+        f"<th style='padding:6px 12px;border:1px solid #CBD5E1'>{locales.t('html_note')}</th>"
         "</tr></thead>"
         f"<tbody>{''.join(table_rows)}</tbody>"
         "</table>"
     )
 
     # ── Bước 3: Hàm mục tiêu ─────────────────────────────────────────────
-    parts.append("<p>📌 <b>Bước 3: Dạng mục tiêu</b></p>")
+    parts.append(f"<p>{locales.t('html_std_step3')}</p>")
 
     def get_replaced_terms(coeffs, multiplier=1):
         """Tạo danh sách (hệ số, tên biến) sau khi tính toán cả phép thay thế a_i, b_i, y_i"""
@@ -497,34 +495,34 @@ def _standardization_html(engine, mode: str) -> str:
     orig_expr = format_terms(orig_terms)
 
     if prob.objective_sense == "max":
-        parts.append(f"<p>Hàm mục tiêu gốc: $$\\max Z = {orig_expr}$$</p>")
+        parts.append(f"<p>{locales.t('html_obj_orig')} $$\\max Z = {orig_expr}$$</p>")
         
         # Nếu có thay thế biến ở Bước 1, in ra hàm mục tiêu sau khi thế
         if sub_notes:
             replaced_expr = format_terms(get_replaced_terms(prob.obj_coeffs, 1))
-            parts.append(f"<p>Thay thế biến vào hàm mục tiêu: $$\\max Z = {replaced_expr}$$</p>")
+            parts.append(f"<p>{locales.t('html_obj_sub')} $$\\max Z = {replaced_expr}$$</p>")
             
         # Biểu thức dạng chuẩn (min) - nhân hệ số với -1
         min_expr = format_terms(get_replaced_terms(prob.obj_coeffs, -1))
-        parts.append(f"<p>Đặt $Z' = -Z$, chuyển về bài toán $\\min$:</p>")
+        parts.append(f"<p>{locales.t('html_max_to_min')}</p>")
         parts.append(f"<p>$$\\min Z' = -\\max Z = {min_expr}$$</p>")
     else:
-        parts.append(f"<p>Hàm mục tiêu gốc: $$\\min Z = {orig_expr}$$</p>")
+        parts.append(f"<p>{locales.t('html_obj_orig')} $$\\min Z = {orig_expr}$$</p>")
         
         # Nếu có thay thế biến ở Bước 1, in ra hàm mục tiêu sau khi thế
         if sub_notes:
             replaced_expr = format_terms(get_replaced_terms(prob.obj_coeffs, 1))
-            parts.append(f"<p>Thay thế biến vào hàm mục tiêu: $$\\min Z = {replaced_expr}$$</p>")
+            parts.append(f"<p>{locales.t('html_obj_sub')} $$\\min Z = {replaced_expr}$$</p>")
 
     # ── Bảng biến chuẩn hóa cuối ──────────────────────────────────────────
     if std_names_list:
         std_tex = ",\\;".join(_tex_var(nm) for nm in std_names_list)
-        parts.append(f"<p style='margin-top:20px'>Các biến trong bài toán chuẩn hóa: $\\quad {std_tex}$</p>")
+        parts.append(f"<p style='margin-top:20px'>{locales.t('html_std_vars')} $\\quad {std_tex}$</p>")
 
     raw_lines = getattr(engine, "standardization_lines", [])
     if raw_lines:
         parts.append("<details style='margin-top:8px'>"
-                     "<summary style='color:#64748B;font-size:0.87rem'>Xem log chi tiết (text thuần)</summary>")
+                     f"<summary style='color:#64748B;font-size:0.87rem'>{locales.t('html_log_detail')}</summary>")
         for ln in raw_lines:
             if not ln.strip():
                 parts.append("<br>")
@@ -549,30 +547,30 @@ def _conclusion_html(report: SolveReport, engine, mode: str) -> str:
         has_aux = bool(getattr(engine, "need_aux_phase1", False))
         z_val = "$z_{\\max} = -\\infty$" if is_max else "$z_{\\min} = +\\infty$"
         if has_aux:
-            reason = f"Biến phụ $x_0$ vẫn còn trong cơ sở sau Pha 1 (giá trị $x_0 > 0$) → miền chấp nhận được rỗng ({z_val})."
+            reason = locales.t("html_infeasible_aux", z_val=z_val)
         else:
             art_names = [engine.all_names[a] for a in engine.artificial_vars] if engine.artificial_vars else []
-            art_str = ", ".join(f"${nm}$" for nm in art_names) if art_names else "biến độ nhiễu"
-            reason = f"Pha 1 kết thúc với hàm bổ trợ $> 0$ — {art_str} không thể đưa ra khỏi cơ sở → bài toán vô nghiệm ({z_val})."
-        parts.append(f"<div class='conclusion warn-box'><h3>KẾT LUẬN: Vô nghiệm</h3>"
+            art_str = ", ".join(f"${nm}$" for nm in art_names) if art_names else locales.t("std_add_slack")
+            reason = locales.t("html_infeasible_art", arts=art_str, z_val=z_val)
+        parts.append(f"<div class='conclusion warn-box'><h3>{locales.t('html_concl_infeasible')}</h3>"
                      f"<p>{reason}</p></div>")
         return "".join(parts)
     if status == "unbounded":
         z_val = "$z_{\\max} = +\\infty$" if is_max else "$z_{\\min} = -\\infty$"
-        parts.append(f"<div class='conclusion warn-box'><h3>KẾT LUẬN: Không giới nội</h3>"
-                     f"<p>Có biến vào nhưng không có biến ra khả thi → {z_val}.</p></div>")
+        parts.append(f"<div class='conclusion warn-box'><h3>{locales.t('html_concl_unbounded')}</h3>"
+                     f"<p>{locales.t('html_unbounded_concl', z_val=z_val)}</p></div>")
         return "".join(parts)
     if status == "cycle":
         rule = "Dantzig" if report.dantzig.steps and report.dantzig.steps[0].method == "dantzig" else "Bland"
         if rule == "Dantzig" and report.bland is not None and report.bland.status == "cycle":
-            parts.append("<div class='conclusion warn-box'><h3>KẾT LUẬN: Xoay vòng</h3>"
-                         "<p>Cả Dantzig và Bland đều phát hiện xoay vòng.</p></div>")
+            parts.append(f"<div class='conclusion warn-box'><h3>{locales.t('html_concl_cycle')}</h3>"
+                         f"<p>{locales.t('html_cycle_both')}</p></div>")
         elif rule == "Dantzig":
-            parts.append("<div class='conclusion warn-box'><h3>KẾT LUẬN: Xoay vòng</h3>"
-                         "<p>Dantzig phát hiện xoay vòng — hãy thử Bland's Rule.</p></div>")
+            parts.append(f"<div class='conclusion warn-box'><h3>{locales.t('html_concl_cycle')}</h3>"
+                         f"<p>{locales.t('html_cycle_dantzig')}</p></div>")
         else:
-            parts.append("<div class='conclusion warn-box'><h3>KẾT LUẬN: Xoay vòng</h3>"
-                         "<p>Bland phát hiện xoay vòng.</p></div>")
+            parts.append(f"<div class='conclusion warn-box'><h3>{locales.t('html_concl_cycle')}</h3>"
+                         f"<p>{locales.t('html_cycle_bland')}</p></div>")
         return "".join(parts)
 
     # Optimal
@@ -581,7 +579,7 @@ def _conclusion_html(report: SolveReport, engine, mode: str) -> str:
     method_label = "Dantzig" if report.used_method == "dantzig" else "Bland"
 
     parts.append(f"<div class='conclusion success-box'>")
-    parts.append(f"<h3>KẾT LUẬN: Tối ưu ({method_label})</h3>")
+    parts.append(f"<h3>{locales.t('html_concl_optimal', method=method_label)}</h3>")
 
     # Giá trị mục tiêu
     if is_max:
@@ -593,15 +591,15 @@ def _conclusion_html(report: SolveReport, engine, mode: str) -> str:
 
     # Nghiệm
     if report.multiple_optimal and report.multiple_optimal_vars:
-        parts.append("<p class='warn'>⚠️ Bài toán có <b>vô số nghiệm tối ưu</b>.</p>")
+        parts.append(f"<p class='warn'>{locales.t('html_multiple_opt')}</p>")
         free_idx = report.multiple_optimal_vars[0]
         snap = (report.phase2_trace.final_snapshot
                 if report.phase2_trace and report.phase2_trace.final_snapshot
                 else report.dantzig.final_snapshot)
         if snap:
             param = _tex_var(snap.all_names[free_idx])
-            parts.append(f"<p>Tham số tự do: ${param} \\geq 0$</p>")
-            parts.append("<p>Nghiệm tổng quát:</p><ul>")
+            parts.append(f"<p>{locales.t('html_free_param')} ${param} \\geq 0$</p>")
+            parts.append(f"<p>{locales.t('html_general_sol')}</p><ul>")
             bp = {b: i for i, b in enumerate(snap.basis)}
             for orig_idx, mapping in enumerate(engine.variable_mapping):
                 const = Fraction(0)
@@ -623,7 +621,7 @@ def _conclusion_html(report: SolveReport, engine, mode: str) -> str:
                 parts.append(f"<li>$x_{{{orig_idx+1}}} = {rhs_str}$</li>")
             parts.append("</ul>")
     else:
-        parts.append("<p><b>Nghiệm tối ưu:</b></p><ul>")
+        parts.append(f"<p>{locales.t('html_optimal_sol')}</p><ul>")
         for i in range(len(engine.problem.var_signs)):
             val = report.solution_orig.get(i, Fraction(0))
             parts.append(f"<li>$x_{{{i+1}}} = {_frac(val, mode)}$</li>")
@@ -633,7 +631,7 @@ def _conclusion_html(report: SolveReport, engine, mode: str) -> str:
     d = (report.dantzig.degenerate_steps or 0) + \
         ((report.bland.degenerate_steps if report.bland else 0) or 0)
     if d:
-        parts.append(f"<p class='warn'>ℹ️ Có {d} bước suy biến ($\\theta = 0$).</p>")
+        parts.append(f"<p class='warn'>{locales.t('html_degenerate_count', d=d)}</p>")
 
     parts.append("</div>")
     return "".join(parts)
@@ -761,11 +759,11 @@ summary:hover { color: #1E3A5F; }
 """
 
 _HTML_TEMPLATE = """<!DOCTYPE html>
-<html lang="vi">
+<html lang="{lang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lời giải Quy hoạch tuyến tính</title>
+<title>{page_title}</title>
 <link rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
 <script defer
@@ -784,8 +782,8 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 </head>
 <body>
 <div class="page-header">
-  <h1>Bài toán Quy hoạch tuyến tính — Phương pháp Đơn hình</h1>
-  <p>Xuất từ ứng dụng SimplexApp &nbsp;·&nbsp; Hiển thị LaTeX với KaTeX</p>
+  <h1>{page_h1}</h1>
+  <p>{page_sub}</p>
 </div>
 <div class="container">
 {body}
@@ -807,11 +805,11 @@ def export_report_html(report: SolveReport, mode: str = "Phân số") -> str:
     body_parts: List[str] = []
 
     # 1. Bài toán gốc
-    body_parts.append("<h2>📋 Bài toán gốc</h2>")
+    body_parts.append(f"<h2>{locales.t('html_orig_problem')}</h2>")
     body_parts.append(_problem_html(engine, mode))
 
     # 2. Chuẩn hóa (collapsible)
-    body_parts.append("<details><summary>⚙️ Chi tiết chuẩn hóa bài toán</summary>")
+    body_parts.append(f"<details><summary>{locales.t('html_std_detail')}</summary>")
     body_parts.append(_standardization_html(engine, mode))
     body_parts.append("</details>")
 
@@ -821,23 +819,20 @@ def export_report_html(report: SolveReport, mode: str = "Phân số") -> str:
 
     if has_aux or has_art:
         body_parts.append("<div class='phase-section'>")
-        body_parts.append("<h2>🔧 Pha 1</h2>")
+        body_parts.append(f"<h2>{locales.t('html_phase1')}</h2>")
         if has_aux:
             body_parts.append(
-                "<p class='note'>Tồn tại $b_i &lt; 0$ → cần tìm cơ sở khả thi ban đầu bằng bài toán bổ trợ. "
-                "Thêm biến phụ $x_0$ vào tất cả ràng buộc, giải $\\min\\; x_0$; "
-                "xoay $x_0$ vào hàng có $b_i$ âm nhất.</p>"
+                f"<p class='note'>{locales.t('html_phase1_aux_note')}</p>"
             )
         elif has_art:
             art_names = [engine.all_names[a] for a in engine.artificial_vars]
             art_str = ", ".join(f"${nm}$" for nm in art_names)
             body_parts.append(
-                f"<p class='note'>Ràng buộc đẳng thức → thêm biến độ nhiễu: {art_str}. "
-                f"Bài toán bổ trợ: $\\min\\;({'+'.join(art_names)})$.</p>"
+                f"<p class='note'>{locales.t('html_phase1_art_note', arts=art_str, arts_sum='+'.join(art_names))}</p>"
             )
         body_parts.append(_render_trace_html(report.dantzig, mode))
         if report.phase1_bland is not None and report.phase1_bland is not report.dantzig:
-            body_parts.append("<h3>🔄 Bland (sau Dantzig xoay vòng ở Pha 1)</h3>")
+            body_parts.append(f"<h3>{locales.t('html_bland_after_p1')}</h3>")
             body_parts.append(_render_trace_html(report.phase1_bland, mode))
         body_parts.append("</div>")
 
@@ -847,29 +842,26 @@ def export_report_html(report: SolveReport, mode: str = "Phân số") -> str:
 
         if report.phase2_trace:
             body_parts.append("<div class='phase-section'>")
-            body_parts.append("<h2>🎯 Pha 2 — Giải bài toán gốc</h2>")
+            body_parts.append(f"<h2>{locales.t('html_phase2')}</h2>")
             if has_aux:
                 body_parts.append(
-                    "<p class='note'>$x_0 = 0$ → loại $x_0$ khỏi tất cả ràng buộc, "
-                    "thay hàm mục tiêu gốc vào từ vựng hiện tại.</p>"
+                    f"<p class='note'>{locales.t('html_phase2_aux_note')}</p>"
                 )
             elif has_art:
                 body_parts.append(
-                    "<p class='note'>$\\min$ bổ trợ $= 0$, các biến độ nhiễu $= 0$ → loại khỏi từ vựng, "
-                    "thay hàm mục tiêu gốc vào từ vựng hiện tại.</p>"
+                    f"<p class='note'>{locales.t('html_phase2_art_note')}</p>"
                 )
             body_parts.append(_render_trace_html(report.phase2_trace, mode))
             body_parts.append("</div>")
     else:
         body_parts.append("<div class='phase-section'>")
-        body_parts.append("<h2>🎯 Giải bài toán</h2>")
+        body_parts.append(f"<h2>{locales.t('html_solve')}</h2>")
         body_parts.append(
-            "<p class='note'>Tất cả $b_i \\geq 0$ → cơ sở ban đầu là $w_1, \\ldots, w_m$ khả thi, "
-            "không cần thực hiện Pha 1.</p>"
+            f"<p class='note'>{locales.t('html_no_phase1_note')}</p>"
         )
         body_parts.append(_render_trace_html(report.dantzig, mode))
         if report.bland is not None and report.bland is not report.dantzig:
-            body_parts.append("<h3>🔄 Bland (sau Dantzig xoay vòng)</h3>")
+            body_parts.append(f"<h3>{locales.t('html_bland_after')}</h3>")
             body_parts.append(_render_trace_html(report.bland, mode))
         body_parts.append("</div>")
 
@@ -882,7 +874,13 @@ def export_report_html(report: SolveReport, mode: str = "Phân số") -> str:
 def _write_html(body_parts: List[str]) -> str:
     """Ghép body, điền vào template, ghi ra file tạm, trả về path."""
     body = "\n".join(body_parts)
-    html = _HTML_TEMPLATE.format(css=_CSS, body=body)
+    html = _HTML_TEMPLATE.format(
+        css=_CSS, body=body,
+        lang="en" if locales.current_lang == "en" else "vi",
+        page_title=locales.t("html_page_title"),
+        page_h1=locales.t("html_page_h1"),
+        page_sub=locales.t("html_page_sub"),
+    )
     fd, path = tempfile.mkstemp(suffix=".html", prefix="simplex_solution_")
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(html)
