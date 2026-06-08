@@ -332,6 +332,7 @@ py -m venv .venv
 ```bash
 py -m pip install --upgrade pip
 py -m pip install -r requirements.txt
+
 ```
 
 ### Bước 5: Chạy chương trình
