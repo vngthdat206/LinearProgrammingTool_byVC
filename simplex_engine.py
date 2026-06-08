@@ -6,6 +6,7 @@ from typing import Dict, List, Optional, Tuple
 
 from models import ProblemData, PivotStep, Snapshot, SolveReport, SolveTrace
 from utils import fr, fmt_num
+import locales
 
 
 class SimplexEngine:
@@ -38,12 +39,10 @@ class SimplexEngine:
         raw_obj = [fr(c) for c in self.problem.obj_coeffs]
         if self.problem.objective_sense == "max":
             std_obj = [-c for c in raw_obj]
-            self.standardization_lines.append(
-                "Chuyển bài toán max về min tương đương bằng cách nhân (-1) vào hàm mục tiêu."
-            )
+            self.standardization_lines.append(locales.t("max_to_min"))
         else:
             std_obj = raw_obj[:]
-            self.standardization_lines.append("Vì hàm mục tiêu là hàm min, đã ở dạng chuẩn nên giữ nguyên:")
+            self.standardization_lines.append(locales.t("min_keep"))
 
         self.variable_mapping = []
         self.std_names = []
@@ -54,13 +53,13 @@ class SimplexEngine:
                 j = len(self.std_names)
                 self.std_names.append(name)
                 self.variable_mapping.append([(j, Fraction(1))])
-                self.standardization_lines.append(f"  {name} ≥ 0: giữ nguyên {name} ≥ 0")
+                self.standardization_lines.append(f"  {name} ≥ 0: " + locales.t("keep_pos", name=name))
             elif sign == "≤0":
                 j = len(self.std_names)
                 y_name = f"y{idx + 1}"
                 self.std_names.append(y_name)
                 self.variable_mapping.append([(j, Fraction(-1))])
-                self.standardization_lines.append(f"  {name} ≤ 0: đặt {name} = -{y_name}, với {y_name} ≥ 0")
+                self.standardization_lines.append(f"  {name} ≤ 0: " + locales.t("sub_neg", name=name, y_name=y_name))
             elif sign == "tự do":
                 j1 = len(self.std_names)
                 a_name = f"a{idx + 1}"
@@ -70,7 +69,7 @@ class SimplexEngine:
                 self.std_names.append(b_name)
                 self.variable_mapping.append([(j1, Fraction(1)), (j2, Fraction(-1))])
                 self.standardization_lines.append(
-                    f"  {name} tự do: đặt {name} = {a_name} - {b_name}, với {a_name}, {b_name} ≥ 0"
+                    f"  {name} " + locales.t("sub_free", name=name, a_name=a_name, b_name=b_name)
                 )
             else:
                 raise ValueError(f"Kiểu dấu biến không hợp lệ: {sign}")
@@ -120,33 +119,21 @@ class SimplexEngine:
                 row = [-a for a in row]
                 rhs = -rhs
                 sense = "≤"
-                self.standardization_lines.append(
-                    f'  RB{i + 1}: do dấu của ràng buộc đã là "≥", nên nhân cả hai vế với (-1) để đưa về "≤".'
-                )
+                self.standardization_lines.append(locales.t("cons_neg_rhs", i=i+1))
             elif sense == "=":
-                self.standardization_lines.append(
-                    f'  RB{i + 1}: ràng buộc đẳng thức "=" tách thành hai ràng buộc "≤".'
-                )
-
-                # RB1: a·x ≤ b
-                self.std_constraints.append(row[:])
-                self.std_senses.append("≤")
+                if rhs < 0:
+                    row = [-a for a in row]
+                    rhs = -rhs
+                    self.standardization_lines.append(locales.t("cons_eq_neg", i=i+1))
+                else:
+                    self.standardization_lines.append(locales.t("cons_eq_pos", i=i+1))
+                self.std_constraints.append(row)
+                self.std_senses.append("=")
                 self.std_rhs.append(rhs)
-                
                 self.standardization_lines.append(
-                    f"  ---> RB{i + 1}a: {fmt_expr(row, self.std_names)} ≤ {fmt_num(rhs, 'Phân số')}"
+                    f"  ---> RB{i + 1}:  {fmt_expr(row, self.std_names)} = {fmt_num(rhs, 'Phân số')}"
                 )
-
-                # RB2: -a·x ≤ -b
-                neg_row = [-a for a in row]
-                neg_rhs = -rhs
-                self.std_constraints.append(neg_row)
-                self.std_senses.append("≤")
-                self.std_rhs.append(neg_rhs)
-                self.standardization_lines.append(
-                    f"  ---> RB{i + 1}b: {fmt_expr(neg_row, self.std_names)} ≤ {fmt_num(neg_rhs, 'Phân số')}"
-                )     
-                continue     
+                continue
             elif sense != "≤":
                 raise ValueError(f"Dấu ràng buộc không hợp lệ: {sense}")
 
@@ -172,6 +159,13 @@ class SimplexEngine:
                 self.all_names.append(f"w{next_slack}")
                 next_slack += 1
                 basis.append(sidx)
+            elif sense == "=":
+                # Thêm biến giả art_k
+                sidx = len(self.all_names)
+                self.all_names.append(f"art{next_slack}")
+                next_slack += 1
+                basis.append(sidx)
+                self.artificial_vars.append(sidx)
             else:
                 raise ValueError(f"Sense không hợp lệ sau chuẩn hóa: {sense}")
             rows.append(row)
@@ -299,10 +293,10 @@ class SimplexEngine:
     ) -> Snapshot:
         return Snapshot(
             basis=basis[:],
-            rows=[deepcopy(r) for r in rows],
+            rows=[dict(r) for r in rows],
             rhs=rhs[:],
             obj_const=obj_const,
-            obj=deepcopy(obj),
+            obj=dict(obj),
             phase=phase,
             objective_label=objective_label,
             all_names=self.all_names[:],
@@ -346,13 +340,7 @@ class SimplexEngine:
         max_iter = 500
 
         def signature() -> Tuple:
-            return (
-                tuple(basis),
-                tuple(sorted((i, tuple(sorted(r.items())), rhs[i]) for i, r in enumerate(rows))),
-                obj_const,
-                tuple(sorted(obj.items())),
-                phase,
-            )
+            return (frozenset(basis), phase)
 
         for iteration in range(1, max_iter + 1):
             sig = signature()

@@ -10,6 +10,7 @@ from tkinter import messagebox, ttk
 
 from utils import fmt_num, fr, sense_to_standard
 from models import ProblemData
+import locales
 
 def _halfspace_feasible(x: float, y: float, z: float,
                         planes: List[Tuple[float, float, float, float, str]],
@@ -77,13 +78,13 @@ class Viz3DMixin:
         try:
             prob = self._collect_problem()
         except Exception as exc:
-            messagebox.showerror("Trực quan hóa 3D", str(exc))
+            messagebox.showerror(locales.t("viz_error"), str(exc))
             return
 
         if len(prob.obj_coeffs) != 3:
             messagebox.showinfo(
-                "Trực quan hóa 3D",
-                "Tính năng này chỉ hỗ trợ đúng 3 biến x₁, x₂, x₃."
+                locales.t("viz_error"),
+                locales.t("viz_3d_err")
             )
             return
 
@@ -96,8 +97,8 @@ class Viz3DMixin:
             from mpl_toolkits.mplot3d.art3d import Poly3DCollection
         except Exception as exc:
             messagebox.showerror(
-                "Trực quan hóa 3D",
-                f"Không khởi tạo được thư viện:\n{exc}\n\n"
+                locales.t("viz_error"),
+                f"{locales.t('viz_not_lib')}\n{exc}\n\n"
                 "Hãy cài: pip install matplotlib numpy"
             )
             return
@@ -115,7 +116,7 @@ class Viz3DMixin:
                    else min(vv, key=lambda t: t[3])) if vv else None
 
         win = tk.Toplevel(self)
-        win.title("Trực quan hóa bài toán 3 biến — 3D")
+        win.title(locales.t("viz_3d_title"))
         win.geometry("1400x900")
         win.minsize(900, 600)
         try:
@@ -125,12 +126,12 @@ class Viz3DMixin:
                 win.attributes("-zoomed", True)
             except Exception:
                 pass
-        win.configure(bg="#0f172a")
+        win.configure(bg=self._me["canvas_bg"])
         win.columnconfigure(0, weight=1)
         win.rowconfigure(0, weight=1)
         win.protocol("WM_DELETE_WINDOW", win.destroy)
 
-        outer = tk.Frame(win, bg="#0f172a")
+        outer = tk.Frame(win, bg=self._me["canvas_bg"])
         outer.grid(row=0, column=0, sticky="nsew")
         outer.rowconfigure(0, weight=1)
         outer.columnconfigure(0, weight=1)
@@ -138,9 +139,9 @@ class Viz3DMixin:
 
         from matplotlib.figure import Figure
         fig = Figure(figsize=(14, 9), dpi=100)
-        fig.patch.set_facecolor("#0f172a")
+        fig.patch.set_facecolor(self._me["canvas_bg"])
         ax = fig.add_subplot(111, projection="3d")
-        ax.set_facecolor("#0f172a")
+        ax.set_facecolor(self._me["canvas_bg"])
         for pane in [ax.xaxis.pane, ax.yaxis.pane, ax.zaxis.pane]:
             pane.fill = False
             pane.set_edgecolor("#334155")
@@ -152,8 +153,8 @@ class Viz3DMixin:
         ax.set_ylabel("x₂", fontsize=11, labelpad=8)
         ax.set_zlabel("x₃", fontsize=11, labelpad=8)
         ax.set_title(
-            "Miền chấp nhận được (3D) & điểm tối ưu",
-            fontsize=13, fontweight="bold", color="#e2e8f0", pad=12
+            f"{locales.t('feasible_region')} (3D) & {locales.t('opt_point_label').lower()}",
+            fontsize=13, fontweight="bold", color=self._me["fg"], pad=12
         )
 
         self._draw_3d_scene(ax, planes, vertices, vv, optimal, maximize, prob)
@@ -161,12 +162,12 @@ class Viz3DMixin:
         canvas = FigureCanvasTkAgg(fig, master=outer)
         canvas.draw()
         w = canvas.get_tk_widget()
-        w.configure(bg="#0f172a", highlightthickness=0)
+        w.configure(bg=self._me["canvas_bg"], highlightthickness=0)
         w.grid(row=0, column=0, sticky="nsew")
 
         self._build_info_panel_3d(outer, prob, vertices, vv, optimal, maximize)
 
-        ctrl = tk.Frame(win, bg="#1e293b")
+        ctrl = tk.Frame(win, bg=self._me["header_bg"])
         ctrl.grid(row=1, column=0, sticky="ew")
         self._build_3d_controls(ctrl, ax, canvas, fig)
 
@@ -283,11 +284,11 @@ class Viz3DMixin:
             ax.scatter(xs_v, ys_v, zs_v,
                        s=48, c="#60a5fa", edgecolors="white",
                        linewidths=0.8, zorder=5, depthshade=True,
-                       label="Đỉnh khả thi")
+                       label=locales.t("feasible_pts").split("(")[0].strip())
 
             for idx2, (x, y, z, val) in enumerate(vv, start=1):
                 ax.text(x, y, z,
-                        f" {idx2}", fontsize=8, color="#e2e8f0",
+                        f" {idx2}", fontsize=8, color=self._me["fg"],
                         bbox=dict(boxstyle="round,pad=0.15",
                                   fc="#1e3a5f", ec="#3b82f6", alpha=0.85))
 
@@ -298,7 +299,7 @@ class Viz3DMixin:
                        edgecolors="#fbbf24", linewidths=1.2,
                        zorder=10, depthshade=False, label="Điểm tối ưu")
             ax.text(bx, by, bz,
-                    f"  ★ tối ưu\n  ({bx:.3g}, {by:.3g}, {bz:.3g})\n  z={bval:.3g}",
+                    f"  {locales.t('opt_val_text')}\n  ({bx:.3g}, {by:.3g}, {bz:.3g})\n  z={bval:.3g}",
                     fontsize=9, fontweight="bold", color="#fbbf24",
                     bbox=dict(boxstyle="round,pad=0.3",
                               fc="#1c1917", ec="#f59e0b", alpha=0.96))
@@ -316,11 +317,11 @@ class Viz3DMixin:
             dx, dy, dz = sign*c1*scale, sign*c2*scale, sign*c3*scale
             ax.quiver(cx, cy, cz, dx, dy, dz,
                       color="#f87171", linewidth=2.2, arrow_length_ratio=0.25,
-                      label="Hướng tối ưu hóa")
+                      label=locales.t("opt_dir"))
 
         leg = ax.legend(loc="upper left", fontsize=8,
                         facecolor="#1e293b", edgecolor="#334155",
-                        labelcolor="#e2e8f0", framealpha=0.85)
+                        labelcolor=self._me["fg"], framealpha=0.85)
 
     def _draw_plane_patch(self, ax, a, b, c, d, color,
                           xlo, xhi, ylo, yhi, zlo, zhi,
@@ -390,25 +391,25 @@ class Viz3DMixin:
             if idx < 6:  # only label first few to avoid clutter
                 ax.text(xm, ym, zm, label, fontsize=8, color=color,
                         bbox=dict(boxstyle="round,pad=0.18",
-                                  fc="#0f172a", ec=color, alpha=0.88))
+                                  fc=self._me["header_bg"], ec=color, alpha=0.88))
         except Exception:
             pass
 
     def _build_info_panel_3d(self, parent, prob, vertices, vv, optimal, maximize):
         mode = self.data_mode.get()
 
-        panel = tk.Frame(parent, bg="#1e293b", width=280,
+        panel = tk.Frame(parent, bg=self._me["header_bg"], width=280,
                          highlightthickness=1, highlightbackground="#334155")
         panel.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
         panel.grid_propagate(False)
         panel.columnconfigure(0, weight=1)
 
-        def lbl(text, fg="#e2e8f0", font=("Segoe UI", 9), **kw):
-            tk.Label(panel, text=text, bg="#1e293b", fg=fg,
+        def lbl(text, fg=self._me["header_fg"], font=("Segoe UI", 9), **kw):
+            tk.Label(panel, text=text, bg=self._me["header_bg"], fg=fg,
                      font=font, anchor="w", wraplength=260, **kw).pack(
                 fill="x", padx=10, pady=1)
 
-        lbl("Tóm tắt bài toán 3D",
+        lbl(f"{locales.t('summary')} (3D)",
             fg="#f8fafc", font=("Segoe UI", 11, "bold"))
 
         tk.Frame(panel, bg="#334155", height=1).pack(fill="x", padx=8, pady=4)
@@ -422,51 +423,51 @@ class Viz3DMixin:
         obj_txt = (f"{sense_txt} Z = {coef_str(c1)}x₁"
                    f" {'+ ' if c2 >= 0 else '- '}{coef_str(abs(fr(c2)))}x₂"
                    f" {'+ ' if c3 >= 0 else '- '}{coef_str(abs(fr(c3)))}x₃")
-        lbl("Hàm mục tiêu:", fg="#94a3b8", font=("Segoe UI", 8))
+        lbl(locales.t("obj_val"), fg="#94a3b8", font=("Segoe UI", 8))
         lbl(obj_txt, fg="#7dd3fc", font=("Consolas", 9))
 
         tk.Frame(panel, bg="#334155", height=1).pack(fill="x", padx=8, pady=4)
-        lbl(f"Số ràng buộc: {len(prob.constraints)}", fg="#94a3b8")
-        lbl(f"Số đỉnh khả thi: {len(vertices)}", fg="#94a3b8")
+        lbl(locales.t("num_cons_val", val=len(prob.constraints)), fg="#94a3b8")
+        lbl(locales.t("num_verts_val", val=len(vertices)), fg="#94a3b8")
 
         tk.Frame(panel, bg="#334155", height=1).pack(fill="x", padx=8, pady=4)
-        lbl("Ràng buộc:", fg="#94a3b8", font=("Segoe UI", 8))
+        lbl(locales.t("constraint_legend") + ":", fg="#94a3b8", font=("Segoe UI", 8))
         for i, cons in enumerate(prob.constraints, start=1):
             a, b, c = cons["coeffs"]
             d = cons["rhs"]
             s = sense_to_standard(cons["sense"])
             txt = (f"RB{i}: {coef_str(a)}x₁ + {coef_str(b)}x₂"
                    f" + {coef_str(c)}x₃ {s} {coef_str(d)}")
-            lbl(txt, fg="#e2e8f0", font=("Consolas", 8))
+            lbl(txt, fg=self._me["header_fg"], font=("Consolas", 8))
 
         if vv:
             tk.Frame(panel, bg="#334155", height=1).pack(fill="x", padx=8, pady=4)
-            lbl("Đỉnh khả thi (Z):", fg="#94a3b8", font=("Segoe UI", 8))
+            lbl(locales.t("feasible_pts"), fg="#94a3b8", font=("Segoe UI", 8))
             ordered = sorted(vv, key=lambda t: t[3], reverse=maximize)
             for idx, (x, y, z, val) in enumerate(ordered, start=1):
                 lbl(f"  {idx}. ({x:.3g}, {y:.3g}, {z:.3g})  z={val:.3g}",
-                    fg="#e2e8f0", font=("Consolas", 8))
+                    fg=self._me["header_fg"], font=("Consolas", 8))
 
         if optimal is not None:
             tk.Frame(panel, bg="#334155", height=1).pack(fill="x", padx=8, pady=4)
             bx, by, bz, bv = optimal
-            lbl("Điểm tối ưu:", fg="#fbbf24", font=("Segoe UI", 9, "bold"))
+            lbl(locales.t("opt_point_label") + ":", fg="#fbbf24", font=("Segoe UI", 9, "bold"))
             lbl(f"  ({bx:.4g}, {by:.4g}, {bz:.4g})",
                 fg="#fbbf24", font=("Consolas", 9))
             lbl(f"  Z = {bv:.4g}", fg="#fbbf24", font=("Consolas", 9))
         else:
-            lbl("Không tìm thấy đỉnh khả thi.",
+            lbl(locales.t("no_feasible"),
                 fg="#f87171", font=("Segoe UI", 9))
 
         tk.Frame(panel, bg="#334155", height=1).pack(fill="x", padx=8, pady=4)
-        lbl("Xoay: kéo chuột trái\n   Zoom: lăn chuột\n   Pan: kéo chuột phải",
+        lbl(locales.t("viz_3d_hint").replace('\n', '\n   '),
             fg="#64748b", font=("Segoe UI", 8))
 
 
     def _build_3d_controls(self, ctrl, ax, canvas, fig):
         ctrl.columnconfigure(0, weight=1)
 
-        btn_frame = tk.Frame(ctrl, bg="#1e293b")
+        btn_frame = tk.Frame(ctrl, bg=self._me["header_bg"])
         btn_frame.pack(side="left", padx=12, pady=6)
 
         def mk_btn(text, color, hover, cmd):
@@ -511,6 +512,6 @@ class Viz3DMixin:
         hint = tk.Label(
             ctrl,
             text="Kéo chuột trái để xoay 3D -- Lăn chuột để zoom -- Kéo chuột phải để dịch chuyển",
-            bg="#1e293b", fg="#64748b", font=("Segoe UI", 9)
+            bg=self._me["header_bg"], fg="#64748b", font=("Segoe UI", 9)
         )
         hint.pack(side="right", padx=16)
