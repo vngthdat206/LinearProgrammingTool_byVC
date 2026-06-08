@@ -500,38 +500,40 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                   text="Nhập hệ số từng ràng buộc, chọn dấu rồi nhập vế phải."
                   ).grid(row=0, column=0, sticky="w", pady=(0, 6))
         table = ttk.Frame(cons_frame)
-        table.grid(row=1, column=0, sticky="ew")
 
-        hdr = ttk.Frame(table)
-        hdr.grid(row=0, column=0, columnspan=n+3, sticky="ew")
-        ttk.Label(hdr, text="").grid(row=0, column=0, padx=2)
+        table.grid(row=1, column=0, sticky="w") 
+
+        ttk.Label(table, text="").grid(row=0, column=0, padx=2, pady=2)
         for j in range(n):
-            ttk.Label(hdr, text=f"x{j+1}", width=8,
-                      anchor="center").grid(row=0, column=j+1, padx=2)
-        ttk.Label(hdr, text="Dấu", width=8,
-                  anchor="center").grid(row=0, column=n+1, padx=2)
-        ttk.Label(hdr, text="Hệ số tự do", width=10,
-                  anchor="center").grid(row=0, column=n+2, padx=2)
+            ttk.Label(table, text=f"x{j+1}", anchor="center").grid(
+                row=0, column=j+1, padx=2, pady=2, sticky="ew")
+            
+        ttk.Label(table, text="Dấu", anchor="center").grid(
+            row=0, column=n+1, padx=2, pady=2, sticky="ew")
+        ttk.Label(table, text="Hệ số tự do", anchor="center").grid(
+            row=0, column=n+2, padx=2, pady=2, sticky="ew")
 
         for i in range(m):
-            rf = ttk.Frame(table)
-            rf.grid(row=i+1, column=0, columnspan=n+3, sticky="ew", pady=2)
-            ttk.Label(rf, text=f"(RB{i+1})", width=5).grid(
-                row=0, column=0, padx=2)
+            ttk.Label(table, text=f"(RB{i+1})", width=5, anchor="e").grid(
+                row=i+1, column=0, padx=2, pady=2, sticky="e")
+            
             row_entries = []
             for j in range(n):
-                e = ttk.Entry(rf, width=10)
-                e.grid(row=0, column=j+1, padx=2)
+                e = ttk.Entry(table, width=10)
+                e.grid(row=i+1, column=j+1, padx=2, pady=2)
                 row_entries.append(e)
-            cb = ttk.Combobox(rf, values=SENSES, state="readonly", width=6)
+                
+            cb = ttk.Combobox(table, values=SENSES, state="readonly", width=6)
             cb.set("≤")
-            cb.grid(row=0, column=n+1, padx=2)
-            rhs = ttk.Entry(rf, width=10)
-            rhs.grid(row=0, column=n+2, padx=2)
+            cb.grid(row=i+1, column=n+1, padx=2, pady=2)
+            
+            rhs = ttk.Entry(table, width=10)
+            rhs.grid(row=i+1, column=n+2, padx=2, pady=2)
+            
             self.constraint_entries.append(row_entries)
             self.constraint_senses.append(cb)
             self.constraint_rhs.append(rhs)
-
+        
         ttk.Label(
             self.input_inner,
             text="Bấm Tab để chuyển ô. Ctrl+Alt+R để giải.",
