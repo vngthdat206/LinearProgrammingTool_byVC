@@ -1929,7 +1929,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             has_negative = any(b < 0 for b in rhs)
             has_zero = any(b == 0 for b in rhs)
 
-            self.status_var.set("Đang chạy đa luồng giải mã bài toán...")
+            self.status_var.set("Đang chạy đa luồng giải bài toán...")
             self.update_idletasks()
             
             with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -1940,23 +1940,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
             self.last_problem = prob
 
-            def count_steps(rep):
-                if not rep or rep.status == "cycle": 
-                    return float('inf')
-                steps_set = set()
-                if rep.dantzig:
-                    for s in rep.dantzig.steps: steps_set.add(id(s))
-                if rep.bland:
-                    for s in rep.bland.steps: steps_set.add(id(s))
-                if rep.phase1_bland:
-                    for s in rep.phase1_bland.steps: steps_set.add(id(s))
-                if rep.phase2_trace:
-                    for s in rep.phase2_trace.steps: steps_set.add(id(s))
-                return len(steps_set)
-
-            steps_d = count_steps(report_d)
-            steps_b = count_steps(report_b)
-
             if has_negative:
                 priority = "haipha"
             elif has_zero:
@@ -1964,63 +1947,37 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             else:
                 priority = "dantzig"
 
-            if has_negative:
-                optimal = "haipha"
-            else:
-                if steps_b < steps_d:
-                    optimal = "bland"
-                else:
-                    optimal = "dantzig"
-
-            # Hàm tạo nhãn cho RadioButton
             def format_label(base_name, key, is_disabled):
                 if is_disabled:
-                    return base_name  
-                if priority == key and optimal == key:
-                    return f"{base_name} (Ưu tiên và Tối ưu)"
-                elif priority == key:
+                    return base_name
+                if priority == key:
                     return f"{base_name} (Ưu tiên)"
-                elif optimal == key:
-                    return f"{base_name} (Tối ưu)"
                 return base_name
-
+            
             if has_negative:
                 state_d, lbl_d = tk.DISABLED, format_label("Dantzig", "dantzig", True)
                 state_b, lbl_b = tk.DISABLED, format_label("Bland", "bland", True)
                 state_hp, lbl_hp = tk.NORMAL, format_label("Hai Pha", "haipha", False)
-                reason_th = "Thuật toán ưu tiên: Hai Pha (vì tồn tại b_i < 0, bắt buộc dùng bài toán phụ để tìm cơ sở khả thi)."
-                
-                step_str = str(steps_d) if steps_d != float('inf') else "..."
-                reason_op = f"Thuật toán tối ưu: Hai Pha (bắt buộc dùng, tổng số bước giải: {step_str})."
+                reason_th = "Thuật toán ưu tiên: Hai Pha (vì tồn tại b_i < 0, bắt buộc dùng bài toán phụ)."
                 default_view = "haipha"
                 
             elif has_zero:
                 state_d, lbl_d = tk.NORMAL, format_label("Dantzig", "dantzig", False)
                 state_b, lbl_b = tk.NORMAL, format_label("Bland", "bland", False)
                 state_hp, lbl_hp = tk.DISABLED, format_label("Hai Pha", "haipha", True)
-                reason_th = "Thuật toán ưu tiên: Bland (vì b_i ≥ 0 nhưng có b_i = 0, ưu tiên Bland để chặn nguy cơ lặp suy biến)."
-                
-                if optimal == "bland":
-                    sd_str = str(steps_d) if steps_d != float('inf') else "vô hạn (lặp)"
-                    reason_op = f"Thuật toán tối ưu: Bland (giải xong trong {steps_b} bước xoay, Dantzig cần {sd_str} bước)."
-                else:
-                    reason_op = f"Thuật toán tối ưu: Dantzig (giải trong {steps_d} bước xoay, vượt qua suy biến nhanh hơn Bland {steps_b} bước)."
+                reason_th = "Thuật toán ưu tiên: Bland (vì b_i ≥ 0 nhưng có b_i = 0, ưu tiên Bland)."
                 default_view = "bland"
                 
             else:
                 state_d, lbl_d = tk.NORMAL, format_label("Dantzig", "dantzig", False)
                 state_b, lbl_b = tk.NORMAL, format_label("Bland", "bland", False)
                 state_hp, lbl_hp = tk.DISABLED, format_label("Hai Pha", "haipha", True)
-                reason_th = "Thuật toán ưu tiên: Dantzig (vì tất cả b_i > 0, cơ sở khả thi hoàn toàn. Dantzig là lựa chọn tự nhiên)."
-                
-                if optimal == "dantzig":
-                    reason_op = f"Thuật toán tối ưu: Dantzig (giải trong {steps_d} bước xoay, nhanh hơn Bland {steps_b} bước)."
-                else:
-                    reason_op = f"Thuật toán tối ưu: Bland (Bland giải {steps_b} bước, bất ngờ nhanh hơn Dantzig {steps_d} bước)."
+                reason_th = "Thuật toán ưu tiên: Dantzig (vì tất cả b_i > 0)."
                 default_view = "dantzig"
 
             self.lbl_theory.config(text=reason_th)
-            self.lbl_optimal.config(text=reason_op)
+            if hasattr(self, 'lbl_optimal'):
+                self.lbl_optimal.config(text="")
 
             for widget in self.comparison_frame.winfo_children():
                 widget.destroy()
@@ -2035,7 +1992,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                                   command=lambda: self._view_selected_solution(report_d, report_b))
             btn_view.pack(anchor="w", pady=(10, 0))
 
-            self.comparison_frame.grid() 
+            self.comparison_frame.grid()
 
             self._view_selected_solution(report_d, report_b)
             self._set_solution_available(True)
