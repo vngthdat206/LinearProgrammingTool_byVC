@@ -168,17 +168,12 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         self.rowconfigure(1, weight=1)
 
         # Thanh tiêu đề trên cùng: tên ứng dụng (h1) + hướng dẫn tóm tắt (h2)
-        header = ttk.Frame(self, style="Header.TFrame", padding=(16, 12))
+        header = ttk.Frame(self, style="Header.TFrame", padding=(8, 6))
         header.grid(row=0, column=0, sticky="nsew")
         header.columnconfigure(0, weight=1)
         ttk.Label(header,
                   text="Ứng dụng Giải bài toán Quy hoạch tuyến tính (tổng quát)",
-                  style="Header.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(
-            header,
-            text="Tab để chuyển ô - Tổ hợp phím Ctrl + Alt + R để giải - Hỗ trợ max/min, ràng buộc ≤ ≥ =, biến tự do - Giải bằng Dantzig / Bland / 2 pha - Trực quan hóa 2D / 3D",
-            style="SubHeader.TLabel",
-        ).grid(row=1, column=0, sticky="w", pady=(4, 0))
+                  style="Header.TLabel").grid(row=0, column=0, sticky="nw")
 
         # Khung chính: 2 cột
         # Cột 0 (left, cố định): bảng thiết lập + nhập liệu
