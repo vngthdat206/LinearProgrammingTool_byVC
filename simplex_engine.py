@@ -660,14 +660,23 @@ class SimplexEngine:
         return basis, rows, rhs, const, obj
 
 
-    def solve_full(self) -> SolveReport:
+    def solve_full(self, preferred_method: str = "dantzig") -> SolveReport:
         notes = self.standardization_lines[:] + self.strict_notes[:]
+
+        # Chuẩn hóa tham số phương pháp; v1 vẫn giữ nguyên auto-fallback sang Bland khi cycle
+        method = (preferred_method or "dantzig").strip().lower()
+        if method in {"dantzig simplex", "dantzig", "d"}:
+            primary_method = "dantzig"
+        elif method in {"bland's rule", "bland", "blands rule", "bland rule"}:
+            primary_method = "bland"
+        else:
+            primary_method = "dantzig"
 
         if self.need_aux_phase1:
             basis, rows, rhs, obj_const, obj, aux_idx = self._phase1_aux_start()
-            phase1 = self._solve_phase1_aux_once("dantzig", basis, rows, rhs, obj_const, obj, "δ", aux_idx)
+            phase1 = self._solve_phase1_aux_once(primary_method, basis, rows, rhs, obj_const, obj, "δ", aux_idx)
             phase1_bland = None
-            if phase1.status == "cycle":
+            if phase1.status == "cycle" and primary_method == "dantzig":
                 phase1_bland = self._solve_phase1_aux_once("bland", basis, rows, rhs, obj_const, obj, "δ", aux_idx)
                 if phase1_bland.status == "cycle":
                     return self._assemble_report(
@@ -676,8 +685,13 @@ class SimplexEngine:
                     )
                 phase1 = phase1_bland
                 used = "bland"
+            elif phase1.status == "cycle":
+                return self._assemble_report(
+                    primary_method, phase1, None, notes, phase1_infeasible=False,
+                    phase1_bland=None, phase2_trace=None
+                )
             else:
-                used = "dantzig"
+                used = primary_method
 
             if phase1.final_snapshot is None:
                 return self._assemble_report(
@@ -746,9 +760,9 @@ class SimplexEngine:
         if self.artificial_vars:
             # Phase 1 first.
             basis, rows, rhs, obj_const, obj = self._phase1_start()
-            phase1 = self._solve_once("dantzig", 1, basis, rows, rhs, obj_const, obj, "w", self.artificial_vars)
+            phase1 = self._solve_once(primary_method, 1, basis, rows, rhs, obj_const, obj, "w", self.artificial_vars)
             phase1_bland = None
-            if phase1.status == "cycle":
+            if phase1.status == "cycle" and primary_method == "dantzig":
                 phase1_bland = self._solve_once("bland", 1, basis, rows, rhs, obj_const, obj, "w", self.artificial_vars)
                 if phase1_bland.status == "cycle":
                     return self._assemble_report(
@@ -757,8 +771,13 @@ class SimplexEngine:
                     )
                 phase1 = phase1_bland
                 used = "bland"
+            elif phase1.status == "cycle":
+                return self._assemble_report(
+                    primary_method, phase1, None, notes, phase1_infeasible=False,
+                    phase1_bland=None, phase2_trace=None
+                )
             else:
-                used = "dantzig"
+                used = primary_method
 
             if phase1.final_snapshot is None:
                 return self._assemble_report(
@@ -785,15 +804,15 @@ class SimplexEngine:
         # No artificials => phase 2 only.
         obj_lbl = "z'" if self.problem.objective_sense == "max" else "z"
         basis, rows, rhs, obj_const, obj = self._phase2_start(self._state(self.initial_basis, self.initial_rows, self.initial_rhs, Fraction(0), {}, 2, obj_lbl, self.artificial_vars))
-        dantzig = self._solve_once("dantzig", 2, basis, rows, rhs, obj_const, obj, obj_lbl, self.artificial_vars)
-        if dantzig.status == "cycle":
+        dantzig = self._solve_once(primary_method, 2, basis, rows, rhs, obj_const, obj, obj_lbl, self.artificial_vars)
+        if dantzig.status == "cycle" and primary_method == "dantzig":
             bland = self._solve_once("bland", 2, basis, rows, rhs, obj_const, obj, obj_lbl, self.artificial_vars)
             return self._assemble_report(
                 "bland", dantzig, bland, notes, phase1_infeasible=False,
                 phase1_bland=None, phase2_trace=bland
             )
         return self._assemble_report(
-            "dantzig", dantzig, None, notes, phase1_infeasible=False,
+            primary_method, dantzig, None, notes, phase1_infeasible=False,
             phase1_bland=None, phase2_trace=dantzig
         )
 
