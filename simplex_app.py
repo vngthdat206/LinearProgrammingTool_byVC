@@ -212,6 +212,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         ttk.Spinbox(setup_row, from_=1, to=10, textvariable=self.n_constraints,
                     width=5, command=self._build_inputs).pack(side="left")
 
+
         # Hàng nút xuất file + HTML + trực quan hóa
         action_row = ttk.Frame(config)
         action_row.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(8, 0)) 
@@ -265,12 +266,11 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             cursor="hand2",
             command=self._viz_dispatch,
         )
-        self.viz_btn.grid(row=0, column=2, sticky="ew", padx = (0,3))
+        self.viz_btn.grid(row=0, column=2, sticky="ew", padx=(0, 3))
         self.viz_btn.bind("<Enter>",
                           lambda e: self._on_button_enter(e, None))
         self.viz_btn.bind("<Leave>",
                           lambda e: self._on_button_leave(e, None))
-
         self.reset_btn = tk.Button(
             action_row,
             text="Xóa & nhập lại",
@@ -288,28 +288,17 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         self.viz3d_btn = None
 
         # --- Dropdown chọn phương pháp giải ---
-        method_box = ttk.Labelframe(config, text="Phương pháp giải", padding=10)
-        method_box.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(10, 0))
-        method_box.columnconfigure(1, weight=1)
-        ttk.Label(method_box, text="Chọn phương pháp:").grid(row=0, column=0, sticky="w", padx=(0, 8))
-        method_combo = ttk.Combobox(
-            method_box,
-            textvariable=self.method_preference,
-            values=["Dantzig Simplex", "Bland's Rule"],
-            state="readonly",
-            width=18,
-        )
-        method_combo.grid(row=0, column=1, sticky="ew")
-        ttk.Label(
-            method_box,
-            text="Dantzig dừng khi phát hiện xoay vòng; Bland dùng để tránh lặp.",
-            foreground="#64748B",
-        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        
 
         ttk.Button(config, text="Chạy giải thuật  (Ctrl+Alt+R)",
                    style="Accent.TButton",
                    command=self.run_solver).grid(
             row=6, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        
+        self.comparison_frame = ttk.Labelframe(left, text="Tham chiếu Phương pháp giải", padding=10)
+        self.comparison_frame.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+        self.comparison_frame.grid_remove()
+        self.selected_method_view = tk.StringVar(value="")
 
         btns = ttk.Frame(left)
         btns.grid(row=1, column=0, sticky="ew", pady=(10, 10))
@@ -391,6 +380,9 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         right.rowconfigure(0, weight=1)
         right.columnconfigure(0, weight=1)
 
+
+
+
         self.output = scrolledtext.ScrolledText(
             right, wrap="none", font=("Consolas", 12),
             bg="#FFFFFF", fg="#1E293B",
@@ -402,7 +394,19 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         h_scroll = ttk.Scrollbar(right, orient="horizontal", command=self.output.xview)
         h_scroll.grid(row=1, column=0, sticky="ew")
         self.output.configure(xscrollcommand=h_scroll.set)
-      
+
+        self.recom_frame = ttk.Frame(right, padding=10, style="TFrame")
+        self.recom_frame.grid(row=2, column=0, sticky="ew")
+        
+        self.lbl_theory = ttk.Label(self.recom_frame, text="", font=("Segoe UI", 10, "bold"), foreground="#0F766E")
+        self.lbl_theory.pack(anchor="w")
+        
+        self.lbl_optimal = ttk.Label(self.recom_frame, text="", font=("Segoe UI", 10, "bold"), foreground="#B45309")
+        self.lbl_optimal.pack(anchor="w", pady=(4, 0))
+
+
+
+
         # Định nghĩa các "tag" màu sắc dùng trong vùng lời giải:
         #   h1        → tên bài toán (to, đậm, màu nâu đỏ)
         #   h2        → tiêu đề pha / bước (đậm, màu xanh than)
@@ -535,7 +539,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             self.constraint_entries.append(row_entries)
             self.constraint_senses.append(cb)
             self.constraint_rhs.append(rhs)
-        
+
         ttk.Label(
             self.input_inner,
             text="Bấm Tab để chuyển ô. Ctrl+Alt+R để giải.",
@@ -1915,28 +1919,146 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return bool(getattr(engine,"need_aux_phase1",False))
 
     def run_solver(self):
-        # Điểm vào chính khi người dùng bấm "Chạy giải thuật" hoặc nhấn Ctrl+Alt+R:
-        #   1. Thu thập dữ liệu từ giao diện (_collect_problem)
-        #   2. Tạo SimplexEngine và gọi solve_full() để giải đầy đủ
-        #   3. Lưu kết quả vào last_report / last_problem để xuất file / trực quan
-        #   4. Hiển thị lời giải và cập nhật thanh trạng thái
-        #   5. Bắt ngoại lệ (nhập liệu sai / lỗi giải thuật) và thông báo lỗi
         try:
-            prob=self._collect_problem()
-            engine=SimplexEngine(prob)
-            method_key = self._normalize_method_choice(self.method_preference.get())
-            report=engine.solve_full(preferred_method=method_key)
-            self.last_problem=prob; self.last_report=report
+            prob = self._collect_problem()
+            
+            engine_d = SimplexEngine(prob)
+            engine_b = SimplexEngine(prob)
 
-            self.output.config(state=tk.NORMAL)
-            self._render_result(report)
-            self.output.config(state=tk.DISABLED)
+            rhs = engine_d.initial_rhs
+            has_negative = any(b < 0 for b in rhs)
+            has_zero = any(b == 0 for b in rhs)
 
-            self._set_solution_available(report.status in ("optimal", "unbounded", "infeasible", "cycle"))
-            self.status_var.set(f"Đã giải xong: {report.status}.")
+            self.status_var.set("Đang chạy đa luồng giải mã bài toán...")
+            self.update_idletasks()
+            
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future_d = executor.submit(engine_d.solve_full, "dantzig")
+                future_b = executor.submit(engine_b.solve_full, "bland")
+                report_d = future_d.result()
+                report_b = future_b.result()
+
+            self.last_problem = prob
+
+            def count_steps(rep):
+                if not rep or rep.status == "cycle": 
+                    return float('inf')
+                steps_set = set()
+                if rep.dantzig:
+                    for s in rep.dantzig.steps: steps_set.add(id(s))
+                if rep.bland:
+                    for s in rep.bland.steps: steps_set.add(id(s))
+                if rep.phase1_bland:
+                    for s in rep.phase1_bland.steps: steps_set.add(id(s))
+                if rep.phase2_trace:
+                    for s in rep.phase2_trace.steps: steps_set.add(id(s))
+                return len(steps_set)
+
+            steps_d = count_steps(report_d)
+            steps_b = count_steps(report_b)
+
+            if has_negative:
+                priority = "haipha"
+            elif has_zero:
+                priority = "bland"
+            else:
+                priority = "dantzig"
+
+            if has_negative:
+                optimal = "haipha"
+            else:
+                if steps_b < steps_d:
+                    optimal = "bland"
+                else:
+                    optimal = "dantzig"
+
+            # Hàm tạo nhãn cho RadioButton
+            def format_label(base_name, key, is_disabled):
+                if is_disabled:
+                    return base_name  
+                if priority == key and optimal == key:
+                    return f"{base_name} (Ưu tiên và Tối ưu)"
+                elif priority == key:
+                    return f"{base_name} (Ưu tiên)"
+                elif optimal == key:
+                    return f"{base_name} (Tối ưu)"
+                return base_name
+
+            if has_negative:
+                state_d, lbl_d = tk.DISABLED, format_label("Dantzig", "dantzig", True)
+                state_b, lbl_b = tk.DISABLED, format_label("Bland", "bland", True)
+                state_hp, lbl_hp = tk.NORMAL, format_label("Hai Pha", "haipha", False)
+                reason_th = "Thuật toán ưu tiên: Hai Pha (vì tồn tại b_i < 0, bắt buộc dùng bài toán phụ để tìm cơ sở khả thi)."
+                
+                step_str = str(steps_d) if steps_d != float('inf') else "..."
+                reason_op = f"Thuật toán tối ưu: Hai Pha (bắt buộc dùng, tổng số bước giải: {step_str})."
+                default_view = "haipha"
+                
+            elif has_zero:
+                state_d, lbl_d = tk.NORMAL, format_label("Dantzig", "dantzig", False)
+                state_b, lbl_b = tk.NORMAL, format_label("Bland", "bland", False)
+                state_hp, lbl_hp = tk.DISABLED, format_label("Hai Pha", "haipha", True)
+                reason_th = "Thuật toán ưu tiên: Bland (vì b_i ≥ 0 nhưng có b_i = 0, ưu tiên Bland để chặn nguy cơ lặp suy biến)."
+                
+                if optimal == "bland":
+                    sd_str = str(steps_d) if steps_d != float('inf') else "vô hạn (lặp)"
+                    reason_op = f"Thuật toán tối ưu: Bland (giải xong trong {steps_b} bước xoay, Dantzig cần {sd_str} bước)."
+                else:
+                    reason_op = f"Thuật toán tối ưu: Dantzig (giải trong {steps_d} bước xoay, vượt qua suy biến nhanh hơn Bland {steps_b} bước)."
+                default_view = "bland"
+                
+            else:
+                state_d, lbl_d = tk.NORMAL, format_label("Dantzig", "dantzig", False)
+                state_b, lbl_b = tk.NORMAL, format_label("Bland", "bland", False)
+                state_hp, lbl_hp = tk.DISABLED, format_label("Hai Pha", "haipha", True)
+                reason_th = "Thuật toán ưu tiên: Dantzig (vì tất cả b_i > 0, cơ sở khả thi hoàn toàn. Dantzig là lựa chọn tự nhiên)."
+                
+                if optimal == "dantzig":
+                    reason_op = f"Thuật toán tối ưu: Dantzig (giải trong {steps_d} bước xoay, nhanh hơn Bland {steps_b} bước)."
+                else:
+                    reason_op = f"Thuật toán tối ưu: Bland (Bland giải {steps_b} bước, bất ngờ nhanh hơn Dantzig {steps_d} bước)."
+                default_view = "dantzig"
+
+            self.lbl_theory.config(text=reason_th)
+            self.lbl_optimal.config(text=reason_op)
+
+            for widget in self.comparison_frame.winfo_children():
+                widget.destroy()
+
+            ttk.Radiobutton(self.comparison_frame, text=lbl_d, variable=self.selected_method_view, value="dantzig", state=state_d).pack(anchor="w", pady=2)
+            ttk.Radiobutton(self.comparison_frame, text=lbl_b, variable=self.selected_method_view, value="bland", state=state_b).pack(anchor="w", pady=2)
+            ttk.Radiobutton(self.comparison_frame, text=lbl_hp, variable=self.selected_method_view, value="haipha", state=state_hp).pack(anchor="w", pady=2)
+
+            self.selected_method_view.set(default_view)
+
+            btn_view = ttk.Button(self.comparison_frame, text="Hiển thị lời giải phương pháp đã chọn", style="Accent.TButton", 
+                                  command=lambda: self._view_selected_solution(report_d, report_b))
+            btn_view.pack(anchor="w", pady=(10, 0))
+
+            self.comparison_frame.grid() 
+
+            self._view_selected_solution(report_d, report_b)
+            self._set_solution_available(True)
+            self.status_var.set("Đã giải xong (Đa luồng).")
+
         except Exception as exc:
-            self.last_report=None; self._set_solution_available(False)
-            messagebox.showerror("Lỗi nhập liệu / giải thuật",str(exc))
-            self.status_var.set("Có lỗi xảy ra.")
-
+            self.last_report = None
+            self._set_solution_available(False)
+            messagebox.showerror("Lỗi nhập liệu / giải thuật", str(exc))
+            self.status_var.set("Có lỗi xảy ra. Kiểm tra lại dữ liệu nhập.")
+            self.output.config(state=tk.NORMAL)
+            self.output.delete("1.0", tk.END)
             self.output.config(state=tk.DISABLED)
+
+    def _view_selected_solution(self, report_d, report_b):
+        sel = self.selected_method_view.get()
+        self.output.config(state=tk.NORMAL)
+        
+        if sel == "bland":
+            self.last_report = report_b
+            self._render_result(report_b)
+        else:
+            self.last_report = report_d
+            self._render_result(report_d)
+            
+        self.output.config(state=tk.DISABLED)
