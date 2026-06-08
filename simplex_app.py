@@ -121,7 +121,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         # Header: nền xanh đêm Bắc Âu, chữ trắng nổi bật
         style.configure("Header.TFrame", background=ME["header_bg"])
         style.configure("Header.TLabel", background=ME["header_bg"],
-                        foreground=ME["header_fg"], font=("Segoe UI", 16, "bold"))
+                        foreground=ME["header_fg"], font=("Segoe UI", 12, "bold"))
 
         # Dòng phụ dưới tiêu đề: chữ xanh băng nhạt trên nền đêm
         style.configure("SubHeader.TLabel", background=ME["header_bg"],
