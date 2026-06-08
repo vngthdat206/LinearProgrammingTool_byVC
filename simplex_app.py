@@ -1,19 +1,14 @@
 from __future__ import annotations
 
-import concurrent.futures
-
 import math
-import os
 import tkinter as tk
-import webbrowser
 from fractions import Fraction
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import Any, Dict, List, Optional, Tuple
 
 from models import ProblemData, SolveReport
-from models import Snapshot, PivotStep, SolveTrace
+from models import Snapshot, PivotStep, SolveTrace 
 from simplex_engine import SimplexEngine
-from html_exporter import export_report_html
 from utils import (VAR_SIGNS, SENSES, clean_number_text, fmt_num,
                    fr, parse_cell, row_expr, sense_to_standard, term_str)
 from viz3d import Viz3DMixin
@@ -31,8 +26,8 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         self.n_vars = tk.IntVar(value=2)
         self.n_constraints = tk.IntVar(value=3)
         self.data_mode = tk.StringVar(value="Phân số")
-        self.method_preference = tk.StringVar(value="Dantzig Simplex")
-        self.demo_preset_var = tk.StringVar(value="Ví dụ duy nhất nghiệm (Dantzig / Bland)")
+        self.method_preference = tk.StringVar(value="auto")
+        self.demo_preset_var = tk.StringVar(value="Ví dụ giải bằng 2 pha")
         self.need_aux_phase1 = False # cờ cho biết có cần biến phụ để giải pha 1 hay không
         self.phase1_aux_var_index: Optional[int] = None # chỉ số của biến phụ nếu cần thiết
 
@@ -47,7 +42,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         self.last_report: Optional[SolveReport] = None
         self.last_problem: Optional[ProblemData] = None
         self.export_btn: Optional[tk.Button] = None
-        self.html_btn: Optional[tk.Button] = None
         self.viz_btn: Optional[tk.Button] = None
         self.viz3d_btn: Optional[tk.Button] = None
 
@@ -123,7 +117,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         # Header: nền xanh đêm Bắc Âu, chữ trắng nổi bật
         style.configure("Header.TFrame", background=ME["header_bg"])
         style.configure("Header.TLabel", background=ME["header_bg"],
-                        foreground=ME["header_fg"], font=("Segoe UI", 12, "bold"))
+                        foreground=ME["header_fg"], font=("Segoe UI", 16, "bold"))
 
         # Dòng phụ dưới tiêu đề: chữ xanh băng nhạt trên nền đêm
         style.configure("SubHeader.TLabel", background=ME["header_bg"],
@@ -170,12 +164,17 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         self.rowconfigure(1, weight=1)
 
         # Thanh tiêu đề trên cùng: tên ứng dụng (h1) + hướng dẫn tóm tắt (h2)
-        header = ttk.Frame(self, style="Header.TFrame", padding=(8, 6))
+        header = ttk.Frame(self, style="Header.TFrame", padding=(16, 12))
         header.grid(row=0, column=0, sticky="nsew")
         header.columnconfigure(0, weight=1)
         ttk.Label(header,
                   text="Ứng dụng Giải bài toán Quy hoạch tuyến tính (tổng quát)",
-                  style="Header.TLabel").grid(row=0, column=0, sticky="nw")
+                  style="Header.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            header,
+            text="Tab để chuyển ô - Tổ hợp phím Ctrl + Alt + R để giải - Hỗ trợ max/min, ràng buộc ≤ ≥ =, biến tự do - Giải bằng Dantzig / Bland / 2 pha - Trực quan hóa 2D / 3D",
+            style="SubHeader.TLabel",
+        ).grid(row=1, column=0, sticky="w", pady=(4, 0))
 
         # Khung chính: 2 cột
         # Cột 0 (left, cố định): bảng thiết lập + nhập liệu
@@ -196,35 +195,39 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         config.grid(row=0, column=0, sticky="ew")
         config.columnconfigure(1, weight=1)
 
-        setup_row = ttk.Frame(config)
-        setup_row.grid(row=0, column=0, columnspan=2, sticky="ew", pady=3)
-        
-        ttk.Label(setup_row, text="Kiểu dữ liệu:").pack(side="left", padx=(0, 4))
-        ttk.Combobox(setup_row, textvariable=self.data_mode,
+        ttk.Label(config, text="Kiểu dữ liệu:").grid(
+            row=0, column=0, sticky="w", pady=3)
+        ttk.Combobox(config, textvariable=self.data_mode,
                      values=["Phân số", "Số thập phân"],
-                     state="readonly", width=12).pack(side="left", padx=(0, 16))
+                     state="readonly", width=12).grid(
+            row=0, column=1, sticky="w", pady=3)
 
-        ttk.Label(setup_row, text="Số biến (1-5):").pack(side="left", padx=(0, 4))
-        ttk.Spinbox(setup_row, from_=1, to=5, textvariable=self.n_vars,
-                    width=5, command=self._build_inputs).pack(side="left", padx=(0, 16))
+        ttk.Label(config, text="Số biến (1–5):").grid(
+            row=1, column=0, sticky="w", pady=3)
+        ttk.Spinbox(config, from_=1, to=5, textvariable=self.n_vars,
+                    width=10, command=self._build_inputs).grid(
+            row=1, column=1, sticky="w", pady=3)
 
-        ttk.Label(setup_row, text="Số ràng buộc (1-10):").pack(side="left", padx=(0, 4))
-        ttk.Spinbox(setup_row, from_=1, to=10, textvariable=self.n_constraints,
-                    width=5, command=self._build_inputs).pack(side="left")
+        ttk.Label(config, text="Số ràng buộc (1–10):").grid(
+            row=2, column=0, sticky="w", pady=3)
+        ttk.Spinbox(config, from_=1, to=10, textvariable=self.n_constraints,
+                    width=10, command=self._build_inputs).grid(
+            row=2, column=1, sticky="w", pady=3)
 
+        ttk.Button(config, text="Tạo lại bảng nhập",
+                   command=self._build_inputs).grid(
+            row=3, column=0, columnspan=2, sticky="ew", pady=(10, 0))
 
-        # Hàng nút xuất file + HTML + trực quan hóa
+        # Hàng nút xuất file + trực quan hóa
         action_row = ttk.Frame(config)
-        action_row.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(8, 0)) 
+        action_row.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(8, 0))
         action_row.columnconfigure(0, weight=1)
         action_row.columnconfigure(1, weight=1)
-        action_row.columnconfigure(2, weight=1)
-        action_row.columnconfigure(3, weight=1) 
 
         # Nút "Xuất file .txt": ban đầu bị vô hiệu hóa (xám); chỉ sáng lên sau khi giải xong
         self.export_btn = tk.Button(
             action_row,
-            text="📄  Xuất .txt",
+            text="📄  Xuất file .txt",
             font=("Segoe UI", 9, "bold"),
             bg="#CBD5E1", fg="white",
             activebackground="#94A3B8", activeforeground="white",
@@ -232,33 +235,16 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             cursor="arrow", state=tk.DISABLED,
             command=self.export_solution_txt,
         )
-        self.export_btn.grid(row=0, column=0, sticky="ew", padx=(0, 3))
+        self.export_btn.grid(row=0, column=0, sticky="ew", padx=(0, 4))
         self.export_btn.bind("<Enter>",
                              lambda e: self._on_button_enter(e, "#2563EB"))
         self.export_btn.bind("<Leave>",
                              lambda e: self._on_button_leave(e, "#CBD5E1"))
 
-        # Nút "Xem HTML (KaTeX)": xuất lời giải đẹp ra trình duyệt
-        self.html_btn = tk.Button(
-            action_row,
-            text="🌐  Xem HTML",
-            font=("Segoe UI", 9, "bold"),
-            bg="#CBD5E1", fg="white",
-            activebackground="#94A3B8", activeforeground="white",
-            relief="flat", bd=0, padx=6, pady=7,
-            cursor="arrow", state=tk.DISABLED,
-            command=self.open_solution_html,
-        )
-        self.html_btn.grid(row=0, column=1, sticky="ew", padx=(0, 3))
-        self.html_btn.bind("<Enter>",
-                           lambda e: self._on_button_enter(e, "#0F766E"))
-        self.html_btn.bind("<Leave>",
-                           lambda e: self._on_button_leave(e, "#CBD5E1"))
-
         # Nút "Trực quan hóa (2D/3D)": luôn hiển thị, nhưng đổi nhãn/màu theo số biến
         self.viz_btn = tk.Button(
             action_row,
-            text="📊  Trực quan",
+            text="📊  Trực quan hóa (2D)",
             font=("Segoe UI", 9, "bold"),
             bg="#6EBF8B", fg="white",
             activebackground="#4DAA72", activeforeground="white",
@@ -266,39 +252,18 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             cursor="hand2",
             command=self._viz_dispatch,
         )
-        self.viz_btn.grid(row=0, column=2, sticky="ew", padx=(0, 3))
+        self.viz_btn.grid(row=0, column=1, sticky="ew")
         self.viz_btn.bind("<Enter>",
                           lambda e: self._on_button_enter(e, None))
         self.viz_btn.bind("<Leave>",
                           lambda e: self._on_button_leave(e, None))
-        self.reset_btn = tk.Button(
-            action_row,
-            text="Xóa & nhập lại",
-            font=("Segoe UI", 9, "bold"),
-            bg="#94A3B8", fg="white",
-            activebackground="#64748B", activeforeground="white",
-            relief="flat", bd=0, padx=6, pady=7,
-            cursor="hand2",
-            command=self._build_inputs,
-        )
-        self.reset_btn.grid(row=0, column=3, sticky="ew")
-        self.reset_btn.bind("<Enter>", lambda e: self._on_button_enter(e, "#64748B"))
-        self.reset_btn.bind("<Leave>", lambda e: self._on_button_leave(e, "#94A3B8"))
 
         self.viz3d_btn = None
-
-        # --- Dropdown chọn phương pháp giải ---
-        
 
         ttk.Button(config, text="Chạy giải thuật  (Ctrl+Alt+R)",
                    style="Accent.TButton",
                    command=self.run_solver).grid(
-            row=6, column=0, columnspan=2, sticky="ew", pady=(10, 0))
-        
-        self.comparison_frame = ttk.Labelframe(left, text="Tham chiếu Phương pháp giải", padding=10)
-        self.comparison_frame.grid(row=2, column=0, sticky="ew", pady=(10, 0))
-        self.comparison_frame.grid_remove()
-        self.selected_method_view = tk.StringVar(value="")
+            row=5, column=0, columnspan=2, sticky="ew", pady=(10, 0))
 
         btns = ttk.Frame(left)
         btns.grid(row=1, column=0, sticky="ew", pady=(10, 10))
@@ -308,18 +273,10 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         demo_combo = ttk.Combobox(
             btns,
             textvariable=self.demo_preset_var,
-            values=[
-                "Ví dụ duy nhất nghiệm (Dantzig / Bland)",
-                "Ví dụ duy nhất nghiệm (hai pha)",
-                "Ví dụ không giới nội (Dantzig / Bland)",
-                "Ví dụ không giới nội (hai pha)",
-                "Ví dụ vô số nghiệm (Dantzig / Bland)",
-                "Ví dụ vô số nghiệm (hai pha)",
-                "Ví dụ vô nghiệm (hai pha)",
-                "Ví dụ xoay vòng (Dantzig → Bland)",
-                "Ví dụ 2 biến (trực quan 2D)",
-                "Ví dụ 3 biến (trực quan 3D)",
-            ],
+            values=["Ví dụ giải bằng 2 pha",
+                    "Ví dụ giải bài toán xoay vòng",
+                    "Ví dụ giải bài toán vô số nghiệm",
+                    "Ví dụ 3 biến (trực quan 3D)"],
             state="readonly", width=28,
         )
         demo_combo.grid(row=0, column=1, sticky="ew", padx=(0, 6))
@@ -349,30 +306,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             "<Configure>",
             lambda e: self.input_canvas.itemconfigure(
                 self.input_window, width=e.width))
-        def _on_mousewheel(event):
-            if event.num == 4 or event.delta > 0:
-                self.input_canvas.yview_scroll(-1, "units")
-            elif event.num == 5 or event.delta < 0:
-                self.input_canvas.yview_scroll(1, "units")
-
-        def _bind_mousewheel(event):
-            self.input_canvas.bind_all("<MouseWheel>", _on_mousewheel)
-            self.input_canvas.bind_all("<Button-4>", _on_mousewheel) 
-            self.input_canvas.bind_all("<Button-5>", _on_mousewheel) 
-
-        def _unbind_mousewheel(event):
-            x, y = event.widget.winfo_pointerxy()
-            widget_under_mouse = event.widget.winfo_containing(x, y)
-            
-            if widget_under_mouse and str(widget_under_mouse).startswith(str(input_box)):
-                return
-                
-            self.input_canvas.unbind_all("<MouseWheel>")
-            self.input_canvas.unbind_all("<Button-4>")
-            self.input_canvas.unbind_all("<Button-5>")
-
-        input_box.bind("<Enter>", _bind_mousewheel)
-        input_box.bind("<Leave>", _unbind_mousewheel)
 
         # Cột phải (hiển thị lời giải): Dùng ScrolledText để cuộn cả dọc lẫn ngang; font monospace để canh cột bảng từ vựng
         right = ttk.Labelframe(main, text="Lời giải", padding=8)
@@ -380,33 +313,12 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         right.rowconfigure(0, weight=1)
         right.columnconfigure(0, weight=1)
 
-
-
-
         self.output = scrolledtext.ScrolledText(
             right, wrap="none", font=("Consolas", 12),
             bg="#FFFFFF", fg="#1E293B",
             insertbackground="#1E293B", relief="flat", padx=14, pady=10,
-            state=tk.DISABLED
         )
         self.output.grid(row=0, column=0, sticky="nsew")
-
-        h_scroll = ttk.Scrollbar(right, orient="horizontal", command=self.output.xview)
-        h_scroll.grid(row=1, column=0, sticky="ew")
-        self.output.configure(xscrollcommand=h_scroll.set)
-
-        self.recom_frame = ttk.Frame(right, padding=10, style="TFrame")
-        self.recom_frame.grid(row=2, column=0, sticky="ew")
-        
-        self.lbl_theory = ttk.Label(self.recom_frame, text="", font=("Segoe UI", 10, "bold"), foreground="#0F766E")
-        self.lbl_theory.pack(anchor="w")
-        
-        self.lbl_optimal = ttk.Label(self.recom_frame, text="", font=("Segoe UI", 10, "bold"), foreground="#B45309")
-        self.lbl_optimal.pack(anchor="w", pady=(4, 0))
-
-
-
-
         # Định nghĩa các "tag" màu sắc dùng trong vùng lời giải:
         #   h1        → tên bài toán (to, đậm, màu nâu đỏ)
         #   h2        → tiêu đề pha / bước (đậm, màu xanh than)
@@ -506,36 +418,34 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                   text="Nhập hệ số từng ràng buộc, chọn dấu rồi nhập vế phải."
                   ).grid(row=0, column=0, sticky="w", pady=(0, 6))
         table = ttk.Frame(cons_frame)
+        table.grid(row=1, column=0, sticky="ew")
 
-        table.grid(row=1, column=0, sticky="w") 
-
-        ttk.Label(table, text="").grid(row=0, column=0, padx=2, pady=2)
+        hdr = ttk.Frame(table)
+        hdr.grid(row=0, column=0, columnspan=n+3, sticky="ew")
+        ttk.Label(hdr, text="").grid(row=0, column=0, padx=2)
         for j in range(n):
-            ttk.Label(table, text=f"x{j+1}", anchor="center").grid(
-                row=0, column=j+1, padx=2, pady=2, sticky="ew")
-            
-        ttk.Label(table, text="Dấu", anchor="center").grid(
-            row=0, column=n+1, padx=2, pady=2, sticky="ew")
-        ttk.Label(table, text="Hệ số tự do", anchor="center").grid(
-            row=0, column=n+2, padx=2, pady=2, sticky="ew")
+            ttk.Label(hdr, text=f"x{j+1}", width=8,
+                      anchor="center").grid(row=0, column=j+1, padx=2)
+        ttk.Label(hdr, text="Dấu", width=8,
+                  anchor="center").grid(row=0, column=n+1, padx=2)
+        ttk.Label(hdr, text="Hệ số tự do", width=10,
+                  anchor="center").grid(row=0, column=n+2, padx=2)
 
         for i in range(m):
-            ttk.Label(table, text=f"(RB{i+1})", width=5, anchor="e").grid(
-                row=i+1, column=0, padx=2, pady=2, sticky="e")
-            
+            rf = ttk.Frame(table)
+            rf.grid(row=i+1, column=0, columnspan=n+3, sticky="ew", pady=2)
+            ttk.Label(rf, text=f"(RB{i+1})", width=5).grid(
+                row=0, column=0, padx=2)
             row_entries = []
             for j in range(n):
-                e = ttk.Entry(table, width=10)
-                e.grid(row=i+1, column=j+1, padx=2, pady=2)
+                e = ttk.Entry(rf, width=10)
+                e.grid(row=0, column=j+1, padx=2)
                 row_entries.append(e)
-                
-            cb = ttk.Combobox(table, values=SENSES, state="readonly", width=6)
+            cb = ttk.Combobox(rf, values=SENSES, state="readonly", width=6)
             cb.set("≤")
-            cb.grid(row=i+1, column=n+1, padx=2, pady=2)
-            
-            rhs = ttk.Entry(table, width=10)
-            rhs.grid(row=i+1, column=n+2, padx=2, pady=2)
-            
+            cb.grid(row=0, column=n+1, padx=2)
+            rhs = ttk.Entry(rf, width=10)
+            rhs.grid(row=0, column=n+2, padx=2)
             self.constraint_entries.append(row_entries)
             self.constraint_senses.append(cb)
             self.constraint_rhs.append(rhs)
@@ -556,196 +466,85 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
     def fill_demo(self):
         preset = self.demo_preset_var.get().strip()
-        _map = {
-            "Ví dụ duy nhất nghiệm (Dantzig / Bland)": self._fill_demo_unique_dantzig,
-            "Ví dụ duy nhất nghiệm (hai pha)":          self._fill_demo_unique_two_phase,
-            "Ví dụ không giới nội (Dantzig / Bland)":   self._fill_demo_unbounded_dantzig,
-            "Ví dụ không giới nội (hai pha)":            self._fill_demo_unbounded_two_phase,
-            "Ví dụ vô số nghiệm (Dantzig / Bland)":     self._fill_demo_multiple_dantzig,
-            "Ví dụ vô số nghiệm (hai pha)":              self._fill_demo_multiple_two_phase,
-            "Ví dụ vô nghiệm (hai pha)":                 self._fill_demo_infeasible_two_phase,
-            "Ví dụ xoay vòng (Dantzig → Bland)":        self._fill_demo_cycle,
-            "Ví dụ 2 biến (trực quan 2D)":               self._fill_demo_2var,
-            "Ví dụ 3 biến (trực quan 3D)":               self._fill_demo_3var,
-        }
-        handler = _map.get(preset)
-        if handler:
-            handler()
+        if preset == "Ví dụ giải bài toán xoay vòng":
+            self._fill_demo_cycle()
+        elif preset == "Ví dụ giải bài toán vô số nghiệm":
+            self._fill_demo_multiple_optimal()
+        elif preset == "Ví dụ 3 biến (trực quan 3D)":
+            self._fill_demo_3var()
         else:
-            self._fill_demo_unique_dantzig()
+            self._fill_demo_two_phase()
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # Các hàm điền ví dụ mẫu (10 bài toán)
-    # ──────────────────────────────────────────────────────────────────────────
-
-    def _apply_demo(self, n_vars, n_cons, sense, obj, signs, constraints):
-        """Hàm tiện ích: thiết lập kích thước, điền dữ liệu vào giao diện."""
-        self.n_vars.set(n_vars); self.n_constraints.set(n_cons)
-        self.objective_sense.set(sense); self._build_inputs()
-        for i, v in enumerate(obj):
-            self.obj_entries[i].delete(0, tk.END); self.obj_entries[i].insert(0, v)
-        for i, sg in enumerate(signs):
-            self.var_signs[i].set(sg)
-        for i, (c, s, r) in enumerate(constraints):
-            for j, e in enumerate(self.constraint_entries[i]):
-                e.delete(0, tk.END); e.insert(0, c[j])
+    def _fill_demo_two_phase(self):
+        self.n_vars.set(2); self.n_constraints.set(3)
+        self.objective_sense.set("min"); self._build_inputs()
+        for i, v in enumerate(["5", "-7"]):
+            self.obj_entries[i].delete(0, tk.END)
+            self.obj_entries[i].insert(0, v)
+        for cb in self.var_signs:
+            cb.set("≥0")
+        data = [(["-4","1"],"≤","-2"),(["1","1"],"≤","5"),(["−1","−1"],"≤","-1")]
+        for i,(c,s,r) in enumerate(data):
+            for j,e in enumerate(self.constraint_entries[i]):
+                e.delete(0,tk.END); e.insert(0,c[j])
             self.constraint_senses[i].set(s)
-            self.constraint_rhs[i].delete(0, tk.END)
-            self.constraint_rhs[i].insert(0, r)
-
-    def _fill_demo_unique_dantzig(self):
-        # Duy nhất nghiệm, tất cả ràng buộc ≤, b_i ≥ 0 → không cần pha 1
-        # max Z = 3x1 + 5x2
-        # 2x1 + x2 ≤ 14,  x1 + 2x2 ≤ 14,  x1 + x2 ≤ 8
-        # → tối ưu duy nhất tại (2, 6), Z* = 36
-        self._apply_demo(
-            n_vars=2, n_cons=3, sense="max",
-            obj=["3", "5"], signs=["≥0", "≥0"],
-            constraints=[
-                (["2", "1"], "≤", "14"),
-                (["1", "2"], "≤", "14"),
-                (["1", "1"], "≤",  "8"),
-            ],
-        )
-
-    def _fill_demo_unique_two_phase(self):
-        # Duy nhất nghiệm, có ràng buộc ≥ → cần pha 1 (b_i âm sau chuyển chuẩn)
-        # min Z = 5x1 - 7x2
-        # -4x1 + x2 ≤ -2  (tương đương 4x1 - x2 ≥ 2)
-        #   x1 + x2 ≤  5
-        #  -x1 -  x2 ≤ -1  (tương đương x1 + x2 ≥ 1)
-        # → tối ưu duy nhất tại (2, 3), Z* = -11
-        self._apply_demo(
-            n_vars=2, n_cons=3, sense="min",
-            obj=["5", "-7"], signs=["≥0", "≥0"],
-            constraints=[
-                (["-4",  "1"], "≤", "-2"),
-                ([ "1",  "1"], "≤",  "5"),
-                (["-1", "-1"], "≤", "-1"),
-            ],
-        )
-
-    def _fill_demo_unbounded_dantzig(self):
-        # Không giới nội, ràng buộc ≤, b_i ≥ 0 → không cần pha 1
-        # max Z = x1 + x2
-        # -x1 + x2 ≤ 1,  x1 - 2x2 ≤ 2
-        # → tăng x1 tùy ý → Z không bị chặn → unbounded
-        self._apply_demo(
-            n_vars=2, n_cons=2, sense="max",
-            obj=["1", "1"], signs=["≥0", "≥0"],
-            constraints=[
-                (["-1",  "1"], "≤", "1"),
-                ([ "1", "-2"], "≤", "2"),
-            ],
-        )
-
-    def _fill_demo_unbounded_two_phase(self):
-        # Không giới nội, có ràng buộc ≥ → pha 1 thành công, pha 2 phát hiện unbounded
-        # min Z = -2x1 - x2
-        # x1 - x2 ≥ 1  (b âm sau chuẩn hóa → cần pha 1)
-        # x1 + x2 ≥ 2
-        # → miền khả thi không bị chặn theo hướng (x1→+∞) với Z→-∞
-        self._apply_demo(
-            n_vars=2, n_cons=2, sense="min",
-            obj=["-2", "-1"], signs=["≥0", "≥0"],
-            constraints=[
-                (["1", "-1"], "≥", "1"),
-                (["1",  "1"], "≥", "2"),
-            ],
-        )
-
-    def _fill_demo_multiple_dantzig(self):
-        # Vô số nghiệm, ràng buộc ≤, b_i ≥ 0 → không cần pha 1
-        # max Z = 2x1 + 4x2
-        # x1 + 2x2 ≤ 6,  x1 ≤ 4,  x2 ≤ 3
-        # → đường đồng mức song song với RB1 → cạnh tối ưu từ (0,3) đến (2,2) → vô số nghiệm
-        # Z* = 12
-        self._apply_demo(
-            n_vars=2, n_cons=3, sense="max",
-            obj=["2", "4"], signs=["≥0", "≥0"],
-            constraints=[
-                (["1", "2"], "≤", "6"),
-                (["1", "0"], "≤", "4"),
-                (["0", "1"], "≤", "3"),
-            ],
-        )
-
-    def _fill_demo_multiple_two_phase(self):
-        # Vô số nghiệm, có ràng buộc = → biến độ nhiễu pha 1 (cổ điển)
-        # min Z = x1 + 2x2
-        # x1 + 2x2 = 8  (đẳng thức → cần biến độ nhiễu pha 1)
-        # x1 + x2  ≤ 6,  x1 ≤ 5
-        # → đường mục tiêu trùng ràng buộc đẳng thức → vô số nghiệm, Z* = 8
-        self._apply_demo(
-            n_vars=2, n_cons=3, sense="min",
-            obj=["1", "2"], signs=["≥0", "≥0"],
-            constraints=[
-                (["1", "2"], "=", "8"),
-                (["1", "1"], "≤", "6"),
-                (["1", "0"], "≤", "5"),
-            ],
-        )
-
-    def _fill_demo_infeasible_two_phase(self):
-        # Vô nghiệm, pha 1 kết thúc với hàm bổ trợ > 0
-        # min Z = x1 + x2
-        # x1 + x2 ≤ 4,  x1 + x2 ≥ 6  → mâu thuẫn → vô nghiệm
-        # (ràng buộc ≥ → b âm sau chuẩn hóa → cần pha 1)
-        self._apply_demo(
-            n_vars=2, n_cons=2, sense="min",
-            obj=["1", "1"], signs=["≥0", "≥0"],
-            constraints=[
-                (["1", "1"], "≤", "4"),
-                (["1", "1"], "≥", "6"),
-            ],
-        )
+            self.constraint_rhs[i].delete(0,tk.END)
+            self.constraint_rhs[i].insert(0,r)
 
     def _fill_demo_cycle(self):
-        # Xoay vòng: ví dụ Beale (1955) — Dantzig lặp vô hạn, Bland thoát được
-        # min Z = -10x1 + 57x2 + 9x3 + 24x4
-        # 1/2 x1 - 11/2 x2 - 5/2 x3 + 9x4 ≤ 0
-        # 1/2 x1 -  3/2 x2 - 1/2 x3 +  x4 ≤ 0
-        #      x1                         ≤ 1
-        self._apply_demo(
-            n_vars=4, n_cons=3, sense="min",
-            obj=["-10", "57", "9", "24"], signs=["≥0"] * 4,
-            constraints=[
-                (["1/2", "-11/2", "-5/2", "9"], "≤", "0"),
-                (["1/2",  "-3/2", "-1/2", "1"], "≤", "0"),
-                (["1",      "0",    "0",  "0"], "≤", "1"),
-            ],
-        )
+        self.n_vars.set(4); self.n_constraints.set(3)
+        self.objective_sense.set("min"); self._build_inputs()
+        for i,v in enumerate(["-10","57","9","24"]):
+            self.obj_entries[i].delete(0,tk.END); self.obj_entries[i].insert(0,v)
+        for cb in self.var_signs: cb.set("≥0")
+        data=[
+            (["0.5","-5.5","-2.5","9"],"≤","0"),
+            (["0.5","-1.5","-0.5","1"],"≤","0"),
+            (["1","0","0","0"],"≤","1"),
+        ]
+        for i,(c,s,r) in enumerate(data):
+            for j,e in enumerate(self.constraint_entries[i]):
+                e.delete(0,tk.END); e.insert(0,c[j])
+            self.constraint_senses[i].set(s)
+            self.constraint_rhs[i].delete(0,tk.END)
+            self.constraint_rhs[i].insert(0,r)
 
-    def _fill_demo_2var(self):
-        # 2 biến — minh họa trực quan 2D
-        # max Z = 3x1 + 2x2
-        # x1 + x2 ≤ 4,  x1 + 3x2 ≤ 6,  x1 ≤ 3
-        # → miền chấp nhận đẹp, đỉnh tối ưu tại (3, 1), Z* = 11
-        self._apply_demo(
-            n_vars=2, n_cons=3, sense="max",
-            obj=["3", "2"], signs=["≥0", "≥0"],
-            constraints=[
-                (["1", "1"], "≤", "4"),
-                (["1", "3"], "≤", "6"),
-                (["1", "0"], "≤", "3"),
-            ],
-        )
+    def _fill_demo_multiple_optimal(self):
+        self.n_vars.set(3); self.n_constraints.set(4)
+        self.objective_sense.set("max"); self._build_inputs()
+        for i,v in enumerate(["-3","1","1"]):
+            self.obj_entries[i].delete(0,tk.END); self.obj_entries[i].insert(0,v)
+        for cb in self.var_signs: cb.set("≥0")
+        data=[
+            (["1","-1","0"],"≤","0"),
+            (["-2","0","1"],"≤","1"),
+            (["0","-2","1"],"≤","2"),
+            (["1","1","-1"],"≤","6"),
+        ]
+        for i,(c,s,r) in enumerate(data):
+            for j,e in enumerate(self.constraint_entries[i]):
+                e.delete(0,tk.END); e.insert(0,c[j])
+            self.constraint_senses[i].set(s)
+            self.constraint_rhs[i].delete(0,tk.END)
+            self.constraint_rhs[i].insert(0,r)
 
     def _fill_demo_3var(self):
-        # 3 biến — minh họa trực quan 3D
-        # max Z = 5x1 + 4x2 + 3x3
-        # 6x1 + 4x2 + 2x3 ≤ 240
-        # 3x1 + 5x2 + 5x3 ≤ 270
-        # 5x1 + 3x2 + 6x3 ≤ 420
-        self._apply_demo(
-            n_vars=3, n_cons=3, sense="max",
-            obj=["5", "4", "3"], signs=["≥0"] * 3,
-            constraints=[
-                (["6", "4", "2"], "≤", "240"),
-                (["3", "5", "5"], "≤", "270"),
-                (["5", "3", "6"], "≤", "420"),
-            ],
-        )
+        self.n_vars.set(3); self.n_constraints.set(3)
+        self.objective_sense.set("max"); self._build_inputs()
+        for i,v in enumerate(["5","4","3"]):
+            self.obj_entries[i].delete(0,tk.END); self.obj_entries[i].insert(0,v)
+        for cb in self.var_signs: cb.set("≥0")
+        data=[
+            (["6","4","2"],"≤","240"),
+            (["3","5","5"],"≤","270"),
+            (["5","3","6"],"≤","420"),
+        ]
+        for i,(c,s,r) in enumerate(data):
+            for j,e in enumerate(self.constraint_entries[i]):
+                e.delete(0,tk.END); e.insert(0,c[j])
+            self.constraint_senses[i].set(s)
+            self.constraint_rhs[i].delete(0,tk.END)
+            self.constraint_rhs[i].insert(0,r)
 
     def _collect_problem(self) -> ProblemData:
         # Thu thập toàn bộ dữ liệu từ giao diện nhập liệu và đóng gói thành ProblemData.
@@ -770,27 +569,23 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
 
     def _set_solution_available(self, available: bool) -> None:
-        # Bật/tắt nút "Xuất file .txt" và "Xem HTML" tùy theo có kết quả giải hay chưa.
-        for btn, hover_color, base_color in [
-            (self.export_btn, "#2563EB", "#3B82F6"),
-            (self.html_btn,   "#0F766E", "#0D9488"),
-        ]:
-            if btn is None:
-                continue
-            if available:
-                btn._base_bg = base_color
-                btn._hover_bg = hover_color
-                btn.config(state=tk.NORMAL,
-                           bg=base_color,
-                           activebackground=hover_color,
-                           cursor="hand2")
-            else:
-                btn._base_bg = "#CBD5E1"
-                btn._hover_bg = "#94A3B8"
-                btn.config(state=tk.DISABLED,
-                           bg="#CBD5E1",
-                           activebackground="#94A3B8",
-                           cursor="arrow")
+        # Bật/tắt nút "Xuất file .txt" tùy theo có kết quả giải hay chưa.
+        if self.export_btn is None:
+            return
+        if available:
+            self.export_btn._base_bg = "#3B82F6"
+            self.export_btn._hover_bg = "#2563EB"
+            self.export_btn.config(state=tk.NORMAL,
+                                   bg="#3B82F6",
+                                   activebackground="#2563EB",
+                                   cursor="hand2")
+        else:
+            self.export_btn._base_bg = "#CBD5E1"
+            self.export_btn._hover_bg = "#94A3B8"
+            self.export_btn.config(state=tk.DISABLED,
+                                   bg="#CBD5E1",
+                                   activebackground="#94A3B8",
+                                   cursor="arrow")
 
     # Bảng màu và nhãn nút trực quan hóa theo số biến:
     #   2 biến → nút xanh sage "Nordic Frost" "Trực quan hóa (2D)"
@@ -838,27 +633,19 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         #   2 biến → vẽ đồ thị 2D miền chấp nhận + đường đồng mức
         #   3 biến → vẽ mô hình 3D (Viz3DMixin)
         #   khác  → thông báo không hỗ trợ
+        # Truyền last_report vào viz để dùng trạng thái và nghiệm từ engine
+        # thay vì tự tính lại (sửa lỗi unbounded/infeasible báo sai).
         n = int(self.n_vars.get())
         if n == 2:
-            self.visualize_two_variable_problem()
+            self.visualize_two_variable_problem(report=self.last_report)
         elif n == 3:
-            self.visualize_three_variable_problem()
+            self.visualize_three_variable_problem(report=self.last_report)
         else:
             messagebox.showinfo(
                 "Trực quan hóa",
                 "Tính năng trực quan chỉ hỗ trợ bài toán 2 hoặc 3 biến.\n"
                 "Vui lòng giảm số biến xuống còn 2 hoặc 3.",
             )
-
-    def _normalize_method_choice(self, choice: Optional[str]) -> str:
-        """Chuẩn hóa lựa chọn từ dropdown thành khóa nội bộ của solver."""
-        value = (choice or "").strip().lower()
-        if value in {"dantzig simplex", "dantzig", "d"}:
-            return "dantzig"
-        if value in {"bland's rule", "bland", "blands rule", "bland rule"}:
-            return "bland"
-        # Fallback: dantzig (hành vi mặc định như v1)
-        return "dantzig"
 
     def _on_button_enter(self, event, darker_color: Optional[str] = None) -> None:
         # Xử lý sự kiện hover vào nút: đổi sang màu hover (tối hơn).
@@ -901,22 +688,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             self.status_var.set(f"Đã xuất file: {path}")
         except Exception as exc:
             messagebox.showerror("Lỗi xuất file", str(exc))
-
-    def open_solution_html(self) -> None:
-        """Xuất lời giải đầy đủ ra HTML+KaTeX và mở trong trình duyệt mặc định."""
-        if self.last_report is None:
-            messagebox.showinfo("Xem HTML", "Chưa có lời giải. Vui lòng chạy giải thuật trước.")
-            return
-        try:
-            self.status_var.set("Đang tạo file HTML…")
-            self.update_idletasks()
-            path = export_report_html(self.last_report, self.data_mode.get())
-            url = f"file:///{path.replace(os.sep, '/')}"
-            webbrowser.open(url)
-            self.status_var.set(f"Đã mở trình duyệt: {os.path.basename(path)}")
-        except Exception as exc:
-            messagebox.showerror("Lỗi xuất HTML", str(exc))
-            self.status_var.set("Lỗi khi tạo file HTML.")
 
 
     def _boundary_text(self, coeffs, sense: str, rhs: Fraction) -> str:
@@ -1031,6 +802,88 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return max(vertex_values, key=lambda t: t[2]) if maximize \
                else min(vertex_values, key=lambda t: t[2])
 
+    def _compute_second_optimal_vertex(self, report):
+        # Tính đỉnh thứ hai của đoạn nghiệm tối ưu khi vô số nghiệm (2 biến).
+        # Ý tưởng: từ final_snapshot, tăng biến tự do (hệ số 0 trong obj) đến θ_max
+        # → ra một đỉnh cơ sở mới cùng Z*. Quy về biến gốc qua variable_mapping.
+        if not report or not report.multiple_optimal:
+            return None
+        free_vars = report.multiple_optimal_vars or []
+        if not free_vars:
+            return None
+        engine = report.engine
+        snap = (report.phase2_trace.final_snapshot
+                if report.phase2_trace and report.phase2_trace.final_snapshot
+                else report.dantzig.final_snapshot)
+        if snap is None:
+            return None
+        fv = free_vars[0]
+        # Tìm θ_max: tỉ số nhỏ nhất dương — bao xa biến fv có thể tăng
+        theta = None
+        for i, row in enumerate(snap.rows):
+            a = row.get(fv, Fraction(0))
+            if a < 0:
+                t = snap.rhs[i] / (-a)
+                if t > Fraction(0) and (theta is None or t < theta):
+                    theta = t
+        if theta is None or theta <= 0:
+            return None
+        # Giá trị biến chuẩn hóa tại đỉnh thứ hai
+        std_val = {i: Fraction(0) for i in range(len(engine.std_names))}
+        for i, b in enumerate(snap.basis):
+            if b < len(engine.std_names):
+                std_val[b] = snap.rhs[i]
+        std_val[fv] = theta
+        for i, row in enumerate(snap.rows):
+            a = row.get(fv, Fraction(0))
+            if a != 0:
+                b = snap.basis[i]
+                if b < len(engine.std_names):
+                    std_val[b] = snap.rhs[i] + a * theta
+        # Quy về biến gốc
+        orig = {}
+        for orig_idx, mapping in enumerate(engine.variable_mapping):
+            val = Fraction(0)
+            for k, coef in mapping:
+                val += coef * std_val.get(k, Fraction(0))
+            orig[orig_idx] = val
+        if len(orig) < 2:
+            return None
+        x1 = float(orig.get(0, 0))
+        x2 = float(orig.get(1, 0))
+        z  = float(report.objective_orig)
+        return (x1, x2, z)
+
+    def _plot_optimal_segment(self, ax, pt1, pt2, z_star):
+        # Vẽ đoạn thẳng vàng nối hai đỉnh tối ưu, kèm sao ở hai đầu.
+        if pt1 is None or pt2 is None:
+            return
+        x1, y1, _ = pt1
+        x2, y2, _ = pt2
+        ax.plot([x1, x2], [y1, y2],
+                color="#F59E0B", linewidth=3.5,
+                solid_capstyle="round", zorder=7,
+                label="Đoạn nghiệm tối ưu")
+        ax.scatter([x1, x2], [y1, y2],
+                   s=200, marker="*", color="#F59E0B",
+                   edgecolors="#1E3A5F", linewidths=1.2, zorder=8)
+        mx, my = (x1 + x2) / 2, (y1 + y2) / 2
+        mode = self.data_mode.get()
+        try:
+            z_str = fmt_num(Fraction(str(round(z_star, 10))), mode)
+        except Exception:
+            z_str = f"{z_star:.4g}"
+        ax.annotate(
+            f"Vô số nghiệm tối ưu\nz* = {z_str}\n"
+            f"A=({x1:.3g}, {y1:.3g})\nB=({x2:.3g}, {y2:.3g})",
+            xy=(mx, my), xytext=(16, 16), textcoords="offset points",
+            fontsize=9, fontweight="bold",
+            bbox=dict(boxstyle="round,pad=0.35",
+                      fc="#FEF9C3", ec="#F59E0B", alpha=0.98),
+            arrowprops=dict(arrowstyle="->", color="#D97706", lw=1.5),
+            zorder=9
+        )
+
     def _request_canvas_redraw(self, canvas, delay_ms=14):
         # Đặt lịch vẽ lại canvas sau delay_ms mili-giây bằng widget.after().
         widget = canvas.get_tk_widget()
@@ -1061,13 +914,11 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             add(((fc-fb*ymin)/fa, ymin)); add(((fc-fb*ymax)/fa, ymax))
         return pts
 
-    def visualize_two_variable_problem(self) -> None:
-        # Mở cửa sổ trực quan hóa đầy đủ cho bài toán 2 biến:
-        #   1. Thu thập và xác thực dữ liệu nhập
-        #   2. Khởi tạo matplotlib (backend TkAgg)
-        #   3. Tính miền khả thi, đỉnh, điểm tối ưu
-        #   4. Vẽ: miền khả thi (fill) → ràng buộc (đường) → đồng mức (dash) → đỉnh → sao tối ưu
-        #   5. Thêm panel thông tin, điều khiển zoom, tương tác kéo-thả / cuộn chuột
+    def visualize_two_variable_problem(self, report=None) -> None:
+        # Mở cửa sổ trực quan hóa đầy đủ cho bài toán 2 biến.
+        # report (SolveReport | None): nếu có, dùng status và nghiệm từ engine
+        #   thay vì tự tính lại — sửa đúng lỗi unbounded/infeasible báo sai.
+        #   Nếu None (chưa giải), fallback về vertex enumeration như cũ.
         try:
             prob = self._collect_problem()
         except Exception as exc:
@@ -1075,6 +926,22 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         if len(prob.obj_coeffs) != 2:
             messagebox.showinfo("Trực quan hóa",
                 "Tính năng này chỉ hỗ trợ đúng 2 biến x₁ và x₂."); return
+
+        # --- Kiểm tra trạng thái từ engine trước khi làm gì cả ---
+        status = report.status if report is not None else None
+        if status == "infeasible":
+            messagebox.showinfo(
+                "Trực quan hóa",
+                "Bài toán vô nghiệm — miền khả thi rỗng.\n"
+                "Sẽ vẽ các đường ràng buộc nhưng không có miền tô màu."
+            )
+        elif status == "unbounded":
+            messagebox.showwarning(
+                "Trực quan hóa",
+                "Bài toán không giới nội — hàm mục tiêu tiến đến vô cực.\n"
+                "Sẽ vẽ miền khả thi nhưng không đánh dấu điểm tối ưu."
+            )
+
         try:
             import numpy as np, matplotlib
             matplotlib.use("TkAgg", force=True)
@@ -1092,91 +959,107 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         c1, c2 = float(prob.obj_coeffs[0]), float(prob.obj_coeffs[1])
         vertex_values = [(p[0], p[1], c1*p[0]+c2*p[1]) for p in vertices]
         maximize = prob.objective_sense == "max"
-        optimal_point = self._find_optimal_vertex(vertex_values, maximize)
+
+        # --- Chọn nguồn điểm tối ưu ---
+        if status == "optimal" and report is not None:
+            # Dùng nghiệm chính xác từ engine (xử lý đúng biến tự do/âm)
+            x1_opt = float(report.solution_orig.get(0, 0))
+            x2_opt = float(report.solution_orig.get(1, 0))
+            z_opt  = float(report.objective_orig)
+            optimal_point = (x1_opt, x2_opt, z_opt)
+            # Tính đỉnh thứ hai nếu vô số nghiệm
+            second_optimal = self._compute_second_optimal_vertex(report) \
+                if report.multiple_optimal else None
+        elif status in ("unbounded", "infeasible"):
+            # Không có điểm tối ưu hữu hạn
+            optimal_point = None
+            second_optimal = None
+        else:
+            # Chưa giải (report=None) hoặc cycle → tự tính như cũ
+            optimal_point = self._find_optimal_vertex(vertex_values, maximize)
+            second_optimal = None
+
+        # --- Xây dựng z_best cho đường đồng mức ---
+        # Nếu có nghiệm từ engine thì dùng, tránh tính sai khi unbounded
+        z_best_override = float(report.objective_orig) \
+            if (status == "optimal" and report is not None) else None
 
         win = self._create_visualization_window()
-        outer = tk.Frame(win, bg="#0f172a")
-        outer.grid(row=0, column=0, sticky="nsew")
-        outer.rowconfigure(0, weight=1)
-        outer.columnconfigure(0, weight=1)
-
-        canvas_host = tk.Frame(outer, bg="#0f172a")
-        canvas_host.grid(row=0, column=0, sticky="nsew")
-        canvas_host.rowconfigure(0, weight=1)
-        canvas_host.columnconfigure(0, weight=1)
+        pf = tk.Frame(win, bg="#F0F4F8", bd=0, highlightthickness=0)
+        pf.grid(row=0, column=0, sticky="nsew")
+        pf.rowconfigure(0, weight=1); pf.columnconfigure(0, weight=1)
 
         fig, ax = self._create_figure()
         self._plot_feasible_region(ax, X, Y, feasible_mask)
         self._plot_constraints(ax, halfplanes, xmin, xmax, ymin, ymax)
         self._plot_objective_contours(ax, c1, c2, vertex_values,
-                                      xmin, xmax, ymin, ymax, maximize)
+                                      xmin, xmax, ymin, ymax, maximize,
+                                      z_best_override=z_best_override)
         self._plot_vertices(ax, vertex_values, maximize)
-        self._plot_optimal_point(ax, optimal_point, maximize)
+        # Vẽ đoạn tối ưu (vô số nghiệm) hoặc điểm tối ưu đơn
+        if second_optimal is not None:
+            self._plot_optimal_segment(ax, optimal_point, second_optimal,
+                                       float(report.objective_orig))
+        else:
+            self._plot_optimal_point(ax, optimal_point, maximize)
+        # Vẽ mũi tên hướng tối ưu nếu bài toán không giới nội
+        if status == "unbounded":
+            self._plot_unbounded_arrow(ax, c1, c2, maximize,
+                                       xmin, xmax, ymin, ymax)
         self._configure_axes(ax, xmin, xmax, ymin, ymax)
 
-        canvas = FigureCanvasTkAgg(fig, master=canvas_host)
+        canvas = FigureCanvasTkAgg(fig, master=pf)
         canvas.draw()
-        canvas_widget = canvas.get_tk_widget()
-        canvas_widget.configure(bg="#0f172a", highlightthickness=0, bd=0)
-        canvas_widget.grid(row=0, column=0, sticky="nsew")
-        self._create_info_panel(canvas_host, prob, vertices, vertex_values,
-                                 optimal_point, maximize)
-        self._create_zoom_controls(outer, ax, canvas,
+        canvas.get_tk_widget().configure(bd=0, highlightthickness=0,
+                                         relief="flat")
+        canvas.get_tk_widget().pack(fill="both", expand=True)
+        self._create_info_panel(pf, prob, vertices, vertex_values,
+                                 optimal_point, maximize, status=status,
+                                 multiple_optimal=getattr(report, "multiple_optimal", False)
+                                     if report else False,
+                                 second_optimal=second_optimal)
+        self._create_zoom_controls(pf, ax, canvas,
                                    (xmin, xmax), (ymin, ymax))
         self._enable_canvas_interactions(ax, canvas)
         win.focus_force()
 
     def _create_visualization_window(self):
-        # Tạo cửa sổ Toplevel riêng biệt cho trực quan hóa với giao diện tối, đồng bộ 2D/3D.
+        # Tạo cửa sổ Toplevel riêng biệt cho trực quan hóa (fullscreen nếu có thể).
         top = tk.Toplevel(self)
-        top.title("Trực quan hóa bài toán 2 biến — 2D")
-        top.geometry("1540x980")
-        top.minsize(1100, 760)
+        top.title("Trực quan hóa bài toán 2 biến")
+        top.geometry("1540x980"); top.minsize(1100, 760)
         top.resizable(True, True)
-        try:
-            top.state("zoomed")
+        try: top.state("zoomed")
         except Exception:
-            try:
-                top.attributes("-zoomed", True)
-            except Exception:
-                pass
-        top.configure(bg="#0f172a")
-        top.columnconfigure(0, weight=1)
-        top.rowconfigure(0, weight=1)
+            try: top.attributes("-zoomed", True)
+            except Exception: pass
+        top.configure(bg="#F0F4F8")
+        top.columnconfigure(0, weight=1); top.rowconfigure(0, weight=1)
         top.protocol("WM_DELETE_WINDOW", top.destroy)
         return top
 
     def _create_figure(self):
-        # Khởi tạo Figure và Axes matplotlib theo phong cách tối, đồng bộ với cửa sổ 3D.
+        # Khởi tạo Figure và Axes matplotlib.
         from matplotlib.figure import Figure
-        fig = Figure(figsize=(15.6, 9.2), dpi=110)
-        fig.patch.set_facecolor("#0f172a")
-        fig.subplots_adjust(left=0.055, right=0.985, top=0.94, bottom=0.09)
+        fig = Figure(figsize=(16, 9.6), dpi=105)
+        fig.patch.set_facecolor("#F0F4F8")
+        fig.subplots_adjust(left=0.045, right=0.992, top=0.94, bottom=0.085)
         ax = fig.add_subplot(111)
-        ax.set_facecolor("#111827")
-        ax.set_axisbelow(True)
-        ax.grid(True, linestyle="--", linewidth=0.8, alpha=0.18, color="#64748b")
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.spines["left"].set_color("#475569")
-        ax.spines["bottom"].set_color("#475569")
-        ax.tick_params(colors="#cbd5e1", labelsize=9)
+        ax.set_facecolor("#FAFBFC")
+        ax.grid(True, linestyle="--", linewidth=0.7, alpha=0.16)
+        ax.spines["top"].set_visible(False); ax.spines["right"].set_visible(False)
+        ax.spines["left"].set_color("#B5D4F4"); ax.spines["bottom"].set_color("#B5D4F4")
         return fig, ax
 
     def _plot_feasible_region(self, ax, X, Y, mask):
-        # Tô vùng chấp nhận được với lớp màu dịu và viền mềm (dark theme).
-        z = mask.astype(float)
-        ax.contourf(
-            X, Y, z,
-            levels=[0.5, 1.5],
-            colors=["#0ea5e9"],
-            alpha=0.13,
-            zorder=0,
-        )
+        # Tô màu xanh lam nhạt (alpha 0.16) vùng chấp nhận được bằng contourf.
+        ax.contourf(X, Y, mask.astype(float), levels=[0.5, 1.5],
+                    alpha=0.18, colors=["#3B82F6"], zorder=0)
 
     def _plot_constraints(self, ax, halfplanes, xmin, xmax, ymin, ymax):
-        # Vẽ từng đường biên ràng buộc, màu xoay vòng, dark theme.
-        palette = ["#38bdf8","#a78bfa","#34d399","#fb923c","#f87171","#22d3ee"]
+        # Vẽ từng đường biên ràng buộc bằng một màu trong palette 6 màu xoay vòng.
+        # Hiển thị nhãn (RB1, RB2, x₁≥0…) ở giữa đoạn, tránh vẽ trùng nhãn.
+        palette = ["#2563EB","#7C3AED","#0F766E","#D97706","#BE123C","#0891B2"]
         seen = set()
         for idx, (a, b, c, sense, label) in enumerate(halfplanes):
             color = palette[idx % len(palette)]
@@ -1185,7 +1068,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             pts = sorted(pts, key=lambda p: (p[0], p[1]))
             (x1,y1),(x2,y2) = pts[0], pts[-1]
             ax.plot([x1,x2],[y1,y2], color=color, linewidth=2.4,
-                    alpha=0.90, solid_capstyle="round", zorder=2)
+                    alpha=0.95, solid_capstyle="round", zorder=2)
             if label not in seen:
                 seen.add(label)
                 mx,my = (x1+x2)/2,(y1+y2)/2
@@ -1193,14 +1076,26 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 ax.text(mx+dx, my+dy, label, fontsize=9, color=color,
                         weight="bold",
                         bbox=dict(boxstyle="round,pad=0.2",
-                                  fc="#0f172a", ec=color, alpha=0.88), zorder=3)
+                                  fc="#ffffff", ec=color, alpha=0.88), zorder=3)
 
-    def _plot_objective_contours(self, ax, c1, c2, vv, xmin, xmax, ymin, ymax, maximize):
-        # Vẽ đường đồng mức hàm mục tiêu — dark theme.
-        if not vv or abs(c1)+abs(c2) < 1e-12: return
-        zvals = sorted(v[2] for v in vv)
-        z_best = max(zvals) if maximize else min(zvals)
-        span = max(1., abs(zvals[-1]-zvals[0]) if len(zvals)>1 else max(1., abs(z_best)))
+    def _plot_objective_contours(self, ax, c1, c2, vv, xmin, xmax, ymin, ymax,
+                                    maximize, z_best_override=None):
+        # Vẽ 5 đường đồng mức hàm mục tiêu: đường tối ưu liền nét đỏ đậm, 4 đường còn lại là nét đứt mờ.
+        # z_best_override: nếu có, dùng giá trị này thay vì tính từ vertex_values
+        #   (quan trọng khi report từ engine có z* chính xác hơn).
+        if abs(c1)+abs(c2) < 1e-12: return
+        if z_best_override is not None:
+            z_best = z_best_override
+            span = max(1., abs(z_best) * 0.5 if abs(z_best) > 1e-9 else 1.)
+            if vv:
+                zvals = sorted(v[2] for v in vv)
+                span = max(span, abs(zvals[-1]-zvals[0]) if len(zvals) > 1 else span)
+        elif vv:
+            zvals = sorted(v[2] for v in vv)
+            z_best = max(zvals) if maximize else min(zvals)
+            span = max(1., abs(zvals[-1]-zvals[0]) if len(zvals)>1 else max(1., abs(z_best)))
+        else:
+            return
         levels = [z_best-span, z_best-0.5*span, z_best,
                   z_best+0.5*span, z_best+span]
         for lv in levels:
@@ -1211,68 +1106,69 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             pts = sorted(pts, key=lambda p:(p[0],p[1]))
             (x1,y1),(x2,y2) = pts[0],pts[-1]
             is_best = abs(lv-z_best) < 1e-9
-            ax.plot([x1,x2],[y1,y2], color="#60a5fa",
+            ax.plot([x1,x2],[y1,y2], color="#2563EB",
                     linewidth=2.8 if is_best else 1.6,
                     linestyle="-" if is_best else "--",
-                    alpha=0.80 if is_best else 0.30, zorder=1.5)
+                    alpha=0.75 if is_best else 0.28, zorder=1.5)
             if is_best:
                 tx,ty = (x1+x2)/2,(y1+y2)/2
                 ax.text(tx, ty,
                         f"  z = {fmt_num(Fraction(str(lv)), self.data_mode.get())}",
-                        color="#e2e8f0", fontsize=9, weight="bold",
+                        color="#1E3A5F", fontsize=9, weight="bold",
                         bbox=dict(boxstyle="round,pad=0.2",
-                                  fc="#1e293b", ec="#60a5fa", alpha=0.95), zorder=4)
+                                  fc="#E8F4FD", ec="#B5D4F4", alpha=0.95), zorder=4)
 
     def _plot_vertices(self, ax, vv, maximize):
-        # Vẽ đa giác đỉnh khả thi và đánh số từng đỉnh — dark theme.
+        # Sắp xếp các đỉnh theo góc cực (convex hull) rồi tô đa giác mờ và vẽ đường viền chấm.
+        # Mỗi đỉnh được đánh số (1, 2, …) để người dùng đối chiếu với bảng thông tin bên phải.
         if not vv: return
         pts = list(vv)
         cx = sum(p[0] for p in pts)/len(pts)
         cy = sum(p[1] for p in pts)/len(pts)
         pts.sort(key=lambda t: math.atan2(t[1]-cy, t[0]-cx))
         ax.fill([p[0] for p in pts],[p[1] for p in pts],
-                color="#0f172a", alpha=0.22, zorder=1)
+                color="#E8F4FD", alpha=0.22, zorder=1)
         ax.plot([p[0] for p in pts]+[pts[0][0]],
                 [p[1] for p in pts]+[pts[0][1]],
-                color="#60a5fa", linewidth=1.2, linestyle=":", alpha=0.55, zorder=2.5)
+                color="#185FA5", linewidth=1.2, linestyle=":", alpha=0.55, zorder=2.5)
         for idx,(vx,vy,val) in enumerate(pts,start=1):
             ax.scatter([vx],[vy], s=42, color="#3B82F6",
-                       edgecolors="#0f172a", linewidths=1.0, zorder=5)
+                       edgecolors="white", linewidths=1.0, zorder=5)
             ax.annotate(f"{idx}", xy=(vx,vy), xytext=(6,6),
-                        textcoords="offset points", fontsize=9, color="#e2e8f0",
-                        bbox=dict(boxstyle="circle,pad=0.20",
-                                  fc="#1e293b", ec="#60a5fa", alpha=0.96), zorder=6)
+                        textcoords="offset points", fontsize=9, color="#1E3A5F",
+                        bbox=dict(boxstyle="circle,pad=0.18",
+                                  fc="#E8F4FD", ec="#B5D4F4", alpha=0.95), zorder=6)
 
     def _plot_optimal_point(self, ax, optimal, maximize):
-        # Đánh dấu điểm tối ưu bằng hình sao vàng lớn — dark theme.
+        # Đánh dấu điểm tối ưu bằng hình sao vàng lớn (size 220) và chú thích
+        # tọa độ + giá trị z, với mũi tên chỉ vào điểm.
         if optimal is None: return
         bx,by,bz = optimal
         ax.scatter([bx],[by], s=220, marker="*", color="#F59E0B",
-                   edgecolors="#0f172a", linewidths=1.2, zorder=7)
+                   edgecolors="#1E3A5F", linewidths=1.2, zorder=7)
         ax.annotate(
             f"Điểm tối ưu\n({bx:.3g}, {by:.3g})\nz = {bz:.3g}",
             xy=(bx,by), xytext=(14,18), textcoords="offset points",
             fontsize=10, fontweight="bold",
-            bbox=dict(boxstyle="round,pad=0.38",
-                      fc="#1e293b", ec="#f59e0b", alpha=0.97),
+            bbox=dict(boxstyle="round,pad=0.35",
+                      fc="#FEF9C3", ec="#F59E0B", alpha=0.98),
             arrowprops=dict(arrowstyle="->", color="#D97706", lw=1.5), zorder=8)
 
     def _configure_axes(self, ax, xmin, xmax, ymin, ymax):
-        # Thiết lập tiêu đề, nhãn trục, trục tọa độ, legend — dark theme.
+        # Thiết lập tiêu đề, nhãn trục, trục tọa độ (axhline/axvline), legend.
         ax.set_xlim(xmin,xmax); ax.set_ylim(ymin,ymax)
         ax.set_aspect("auto", adjustable="box")
-        ax.set_xlabel("x₁", fontsize=12, fontweight="bold", color="#cbd5e1")
-        ax.set_ylabel("x₂", fontsize=12, fontweight="bold", color="#cbd5e1")
+        ax.set_xlabel("x₁", fontsize=12, fontweight="bold")
+        ax.set_ylabel("x₂", fontsize=12, fontweight="bold")
         ax.set_title("Miền chấp nhận được và đường đồng mức hàm mục tiêu",
-                     fontsize=14, fontweight="bold", pad=10, color="#e2e8f0")
-        ax.axhline(0,color="#475569",linewidth=1.1,alpha=0.7,zorder=0.5)
-        ax.axvline(0,color="#475569",linewidth=1.1,alpha=0.7,zorder=0.5)
+                     fontsize=14, fontweight="bold", pad=10, color="#1E3A5F")
+        ax.axhline(0,color="#334155",linewidth=1.1,alpha=0.7,zorder=0.5)
+        ax.axvline(0,color="#334155",linewidth=1.1,alpha=0.7,zorder=0.5)
         hs, ls = ax.get_legend_handles_labels()
         if hs:
             ax.legend(hs,ls,loc="upper left",frameon=True,fontsize=9,
                       title="Ràng buộc",title_fontsize=10,fancybox=True,
-                      shadow=False,facecolor="#1e293b",edgecolor="#475569",
-                      labelcolor="#cbd5e1",title_fontproperties={"weight":"bold"})
+                      shadow=False,facecolor="#FAFBFC",edgecolor="#B5D4F4")
 
     def _create_control_button(self, parent, text, color, hover_color, command):
         # Tạo nút tkinter với hiệu ứng hover đơn giản (đổi màu nền khi rê chuột).
@@ -1320,11 +1216,10 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         canvas.mpl_connect("scroll_event",on_scroll)
 
     def _create_zoom_controls(self, parent, ax, canvas, initial_xlim, initial_ylim):
-        # Tạo thanh điều khiển zoom ở góc dưới: nút "+" / "−" / "reset", dark theme đồng bộ 3D.
-        ctrl = tk.Frame(parent, bg="#1e293b")
-        ctrl.place(relx=0.0, rely=1.0, anchor="sw", relwidth=1.0)
-        btn_frame = tk.Frame(ctrl, bg="#1e293b")
-        btn_frame.pack(side="left", padx=8, pady=4)
+        # Tạo thanh điều khiển zoom ở góc dưới trái: nút "+" (zoom in), "−" (zoom out), "return" (trở về khung nhìn ban đầu) và nhãn gợi ý thao tác kéo/lăn chuột.
+        cf = tk.Frame(parent, bg="#1E3A5F",
+                      highlightthickness=1, highlightbackground="#185FA5")
+        cf.place(relx=0.015, rely=0.965, anchor="sw")
         def zi():
             x1,x2=ax.get_xlim(); y1,y2=ax.get_ylim()
             dx=(x2-x1)*0.14; dy=(y2-y1)*0.14
@@ -1338,140 +1233,106 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         def rst():
             ax.set_xlim(initial_xlim); ax.set_ylim(initial_ylim)
             self._request_canvas_redraw(canvas)
-        self._create_control_button(btn_frame,"+","#3B82F6","#2563EB",zi)
-        self._create_control_button(btn_frame,"−","#F59E0B","#D97706",zo)
-        self._create_control_button(btn_frame,"reset","#6EBF8B","#4DAA72",rst)
-        tk.Label(ctrl, text="Kéo chuột trái để di chuyển · Lăn chuột để zoom",
-                 bg="#1e293b", fg="#94a3b8", font=("Segoe UI",9)).pack(
+        self._create_control_button(cf,"+","#3B82F6","#2563EB",zi)
+        self._create_control_button(cf,"−","#F59E0B","#D97706",zo)
+        self._create_control_button(cf,"return","#6EBF8B","#4DAA72",rst)
+        tk.Label(cf, text="Kéo chuột trái để di chuyển -- Lăn chuột để zoom",
+                 bg="#1E3A5F", fg="#B5D4F4", font=("Segoe UI",9)).pack(
             side="left", padx=10, pady=6)
 
-    def _create_info_panel(self, parent, prob, vertices, vv, optimal, maximize):
-        # Bảng tóm tắt nhỏ ở góc trên phải đồ thị, dark theme đồng bộ 3D.
-        info_frame = tk.Frame(parent, bg="#1e293b", bd=0,
-                              highlightthickness=1, highlightbackground="#334155")
-        info_frame.place(relx=0.987, rely=0.02, anchor="ne", width=320, height=182)
-        title = tk.Label(info_frame, text="Tóm tắt", bg="#1e293b",
-                         fg="#e2e8f0", font=("Segoe UI",11,"bold"))
+    def _plot_unbounded_arrow(self, ax, c1, c2, maximize, xmin, xmax, ymin, ymax):
+        # Vẽ mũi tên chỉ hướng hàm mục tiêu tiến đến vô cực (chỉ khi unbounded).
+        # Đặt tại tâm khung nhìn, hướng theo gradient (c1, c2) hoặc ngược lại.
+        import math
+        cx, cy = (xmin+xmax)/2, (ymin+ymax)/2
+        norm = math.sqrt(c1**2 + c2**2)
+        if norm < 1e-10: return
+        scale = min(xmax-xmin, ymax-ymin) * 0.25
+        sign = 1 if maximize else -1
+        dx, dy = sign*c1/norm*scale, sign*c2/norm*scale
+        ax.annotate(
+            "", xy=(cx+dx, cy+dy), xytext=(cx, cy),
+            arrowprops=dict(arrowstyle="-|>", color="#dc2626",
+                            lw=2.2, mutation_scale=18),
+            zorder=8
+        )
+        ax.text(cx+dx*1.05, cy+dy*1.05, "Z → ∞",
+                color="#dc2626", fontsize=10, fontweight="bold",
+                ha="center", va="center",
+                bbox=dict(boxstyle="round,pad=0.25",
+                          fc="#fff7f7", ec="#dc2626", alpha=0.92), zorder=9)
+
+    def _create_info_panel(self, parent, prob, vertices, vv, optimal, maximize,
+                           status=None, multiple_optimal=False, second_optimal=None):
+        # Tạo bảng tóm tắt nhỏ ở góc trên phải đồ thị.
+        # status / multiple_optimal / second_optimal: từ engine.
+        info_frame = tk.Frame(parent, bg="#FAFBFC", bd=0,
+                              highlightthickness=1, highlightbackground="#B5D4F4")
+        info_frame.place(relx=0.987, rely=0.02, anchor="ne", width=320, height=230)
+        title = tk.Label(info_frame, text="Tóm tắt", bg="#FAFBFC",
+                         fg="#1E3A5F", font=("Segoe UI",11,"bold"))
         title.pack(anchor="w", padx=10, pady=(8,2))
-        text = tk.Text(info_frame, wrap="word", bg="#1e293b", fg="#cbd5e1",
-                       bd=0, font=("Segoe UI",9), height=8, padx=10, pady=6,
-                       insertbackground="#e2e8f0")
+        text = tk.Text(info_frame, wrap="word", bg="#FAFBFC", fg="#334155",
+                       bd=0, font=("Segoe UI",9), height=12, padx=10, pady=6)
         text.pack(fill="both", expand=True)
         lines = [
             f"Kiểu: {'Bài toán Max' if prob.objective_sense=='max' else 'Bài toán Min'}",
             f"Số ràng buộc: {len(prob.constraints)}",
             f"Số đỉnh khả thi: {len(vertices)}",
         ]
-        if optimal: lines += [f"Điểm tối ưu: ({optimal[0]:.3g}, {optimal[1]:.3g})",
-                               f"Giá trị mục tiêu: {optimal[2]:.3g}"]
-        else: lines.append("Chưa tìm được miền khả thi.")
-        lines += ["Kéo chuột trái để pan.", "Dùng nút hoặc lăn chuột để zoom."]
+        if status == "unbounded":
+            lines.append("Trạng thái: Không giới nội (Z → ∞)")
+        elif status == "infeasible":
+            lines.append("Trạng thái: Vô nghiệm")
+        elif status == "optimal" and multiple_optimal:
+            lines.append("Trạng thái: Vô số nghiệm tối ưu")
+        # Hiển thị nghiệm
+        if status == "optimal" and multiple_optimal and second_optimal is not None:
+            lines += [
+                f"z* = {optimal[2]:.4g}",
+                f"Đỉnh A: ({optimal[0]:.4g}, {optimal[1]:.4g})",
+                f"Đỉnh B: ({second_optimal[0]:.4g}, {second_optimal[1]:.4g})",
+                "Mọi điểm trên đoạn AB đều tối ưu.",
+            ]
+        elif status == "optimal" and multiple_optimal:
+            lines += [
+                f"Điểm tối ưu: ({optimal[0]:.4g}, {optimal[1]:.4g})",
+                f"z* = {optimal[2]:.4g}",
+                "(Không tính được đỉnh thứ hai)",
+            ]
+        elif optimal:
+            lines += [f"Điểm tối ưu: ({optimal[0]:.4g}, {optimal[1]:.4g})",
+                      f"Giá trị mục tiêu: {optimal[2]:.4g}"]
+        elif status not in ("unbounded", "infeasible"):
+            lines.append("Chưa tìm được miền khả thi.")
+        lines += ["", "Kéo chuột trái để pan.",
+                  "Dùng nút hoặc lăn chuột để zoom."]
         text.insert("1.0", "\n".join(lines))
         text.config(state="disabled")
 
 
     def _format_problem(self, engine):
         # Tạo chuỗi hiển thị bài toán gốc (trước chuẩn hóa):
-        # Căn thẳng cột: cụm (hệ số·biến) của từng biến thẳng nhau, dấu ≤/≥/= thẳng, RHS thẳng.
+        # dòng "min/max Z = c1·x1 + … + cn·xn" và từng ràng buộc, điều kiện dấu.
         mode = self.data_mode.get()
-        prob = engine.problem
-        n = len(prob.obj_coeffs)
-        var_names = [f"x{i+1}" for i in range(n)]
-
-        def fmt_coeff(c):
-            """Định dạng hệ số tuyệt đối (không có dấu)."""
-            return fmt_num(abs(c), mode)
-
-        def build_terms(coeffs):
-            """Trả về list (sign_str, body_str) cho từng hạng tử khác 0."""
-            terms = []
-            for c, nm in zip(coeffs, var_names):
-                if c == 0:
-                    continue
-                sign = "+" if c > 0 else "-"
-                if abs(c) == 1:
-                    body = nm
-                else:
-                    body = f"{fmt_coeff(c)}{nm}"
-                terms.append((sign, body))
-            return terms
-
-        # ── Thu thập tất cả hàng để tính độ rộng cột ────────────────────
-        # Mỗi hàng là list các (sign, body) theo thứ tự biến
-        def row_cells(coeffs):
-            """Với mỗi biến xj, trả về chuỗi hiển thị cho ô đó (có thể rỗng)."""
-            cells = []
-            for c, nm in zip(coeffs, var_names):
-                if c == 0:
-                    cells.append(("", ""))
-                else:
-                    sign = "+" if c > 0 else "-"
-                    body = nm if abs(c) == 1 else f"{fmt_coeff(c)}{nm}"
-                    cells.append((sign, body))
-            return cells
-
-        obj_cells   = row_cells(prob.obj_coeffs)
-        cons_cells  = [row_cells(cons["coeffs"]) for cons in prob.constraints]
-        all_cells   = [obj_cells] + cons_cells
-
-        # Độ rộng mỗi cột (sign + body gộp lại, ví dụ "- 3/2x2")
-        col_w = []
-        for j in range(n):
-            w = 0
-            for row in all_cells:
-                sign, body = row[j]
-                cell_str = f"{sign} {body}" if sign else ""
-                w = max(w, len(cell_str))
-            col_w.append(max(w, len(var_names[j]) + 2))  # tối thiểu đủ chứa tên biến
-
-        # Độ rộng RHS
-        rhs_strs = [fmt_num(cons["rhs"], mode) for cons in prob.constraints]
-        rhs_w = max((len(s) for s in rhs_strs), default=1)
-
-        def render_row(cells):
-            """Ghép một hàng đã căn phải theo col_w."""
-            parts = []
-            first_nonzero = True
-            for j, (sign, body) in enumerate(cells):
-                if not sign:  # hệ số = 0, điền khoảng trắng
-                    parts.append(" " * col_w[j])
-                else:
-                    if first_nonzero and sign == "+":
-                        cell_str = body          # hạng tử đầu bỏ dấu +
-                    else:
-                        cell_str = f"{sign} {body}"
-                    parts.append(cell_str.rjust(col_w[j]))
-                    first_nonzero = False
-            return "  ".join(parts).rstrip()
-
-        sense_label = "max" if prob.objective_sense == "max" else "min"
-        obj_line = f"    {sense_label} Z = {render_row(obj_cells)}"
-
-        # Căn dấu ràng buộc và RHS
-        sense_w = 1  # "≤" / "≥" / "=" đều 1 ký tự
-        con_lines = []
-        for i, cons in enumerate(prob.constraints):
-            lhs  = render_row(cons_cells[i])
-            s    = cons["sense"]
-            rhs  = rhs_strs[i].rjust(rhs_w)
-            con_lines.append(f"      {lhs}  {s}  {rhs}")
-
-        # Điều kiện dấu biến
-        sign_parts = []
-        for i, sg in enumerate(prob.var_signs):
-            nm = f"x{i+1}"
-            if sg == "≥0":     sign_parts.append(f"{nm} ≥ 0")
-            elif sg == "≤0":   sign_parts.append(f"{nm} ≤ 0")
-            else:              sign_parts.append(f"{nm} tự do")
-
-        lines = [
-            "Bài tập Quy Hoạch Tuyến Tính — Phương pháp Đơn hình",
-            "  Bài toán gốc:",
-            obj_line,
-            "    s.t. {",
-        ]
-        lines += con_lines
-        lines.append(f"      {',  '.join(sign_parts)}")
+        def expr(coeffs, names):
+            parts=[]
+            for c,nm in zip(coeffs,names):
+                if c==0: continue
+                if c==1: parts.append(f"+ {nm}")
+                elif c==-1: parts.append(f"- {nm}")
+                elif c>0: parts.append(f"+ {fmt_num(c,mode)}{nm}")
+                else: parts.append(f"- {fmt_num(-c,mode)}{nm}")
+            if not parts: return "0"
+            s=" ".join(parts)
+            return s[2:] if s.startswith("+ ") else s
+        lines=["Bài tập Quy Hoạch Tuyến Tính — Phương pháp Đơn hình","  Bài toán gốc:"]
+        n=len(engine.problem.obj_coeffs)
+        lines.append(f"    {engine.problem.objective_sense} Z = {expr(engine.problem.obj_coeffs,[f'x{i+1}' for i in range(n)])}")
+        lines.append("    {")
+        for cons in engine.problem.constraints:
+            lines.append(f"      {expr(cons['coeffs'],[f'x{i+1}' for i in range(len(cons['coeffs']))])} {cons['sense']} {fmt_num(cons['rhs'],mode)}")
+        lines.append(f"    {', '.join(f'x{i+1}' for i in range(len(engine.problem.var_signs)))} thuộc các điều kiện dấu đã chọn")
         lines.append("    }")
         return "\n".join(lines)
 
@@ -1494,125 +1355,62 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             return s[2:] if s.startswith("+ ") else s
         n_orig=len(engine.problem.var_signs)
         extra_x=[nm for nm in engine.std_names if nm.startswith("x") and nm not in {f"x{i+1}" for i in range(n_orig)}]
-        lines=["========================","*Chuẩn hóa bài toán gốc:","========================","","+ Chuẩn hóa ràng buộc dấu:"]
+        lines=["========================","*Chuẩn hóa bài toán gốc:","========================","","_Chuẩn hóa ràng buộc dấu:"]
         for idx,sign in enumerate(engine.problem.var_signs):
             nm=f"x{idx+1}"
             if sign=="≥0": lines.append(f"        {nm} ≥ 0: giữ nguyên {nm} ≥ 0")
             elif sign=="≤0": lines.append(f"        {nm} tự do âm: đặt {nm} = -y{idx+1}, với y{idx+1} ≥ 0")
             else: lines.append(f"        {nm} tự do: đặt {nm} = a{idx+1} - b{idx+1}, với a{idx+1}, b{idx+1} ≥ 0")
-        lines+=["","+ Chuẩn hóa ràng buộc đẳng thức, bất đẳng thức:"]
-        std_idx = 0
+        lines+=["","_Chuẩn hóa ràng buộc đẳng thức, bất đẳng thức:"]
+        sc=n_orig+1
         for i,cons in enumerate(engine.problem.constraints):
             s=cons["sense"]
-            if s=="≤":
-                lines.append(f"    RB{i+1}: giữ nguyên (≤), thêm biến bù w{std_idx+1}")
-                std_idx += 1
-            elif s=="≥":
-                lines.append(f"    RB{i+1}: nhân (-1) để đưa về ≤, thêm biến bù w{std_idx+1}")
-                std_idx += 1
+            if s=="≤": lines.append(f"    RB{i+1}: giữ nguyên")
+            elif s=="≥": lines.append(f"    RB{i+1}: nhân (-1) để đưa về ≤")
             else:
-                # = tách thành 2 dòng: row_a và row_b
-                wa = std_idx + 1; wb = std_idx + 2
-                row_a = engine.std_constraints[std_idx]; rhs_a = engine.std_rhs[std_idx]
-                row_b = engine.std_constraints[std_idx+1]; rhs_b = engine.std_rhs[std_idx+1]
-                names_a = engine.std_names[:len(row_a)]
-                lines.append(f"    RB{i+1}: đẳng thức → tách thành 2 ràng buộc ≤:")
-                lines.append(f"    ---> RB{i+1}a: {expr(row_a, names_a)} ≤ {fmt_num(rhs_a, mode)}  (thêm biến bù w{wa})")
-                lines.append(f"    ---> RB{i+1}b: {expr(row_b, names_a)} ≤ {fmt_num(rhs_b, mode)}  (thêm biến bù w{wb})")
-                std_idx += 2
-        lines+=["","+ Các biến sau chuẩn hóa:"]
+                snm=f"x{sc}"; sc+=1
+                lines.append(f"    RB{i+1}: trừ thêm biến bù {snm} ≥ 0")
+                row=engine.std_constraints[i]; names=engine.std_names[:len(row)]
+                lines.append(f"    ---> RB{i+1}:  {expr(row,names)} ≤ {fmt_num(engine.std_rhs[i],mode)}")
+        lines+=["","_Các biến sau chuẩn hóa:"]
         for idx,sign in enumerate(engine.problem.var_signs):
             if sign=="≥0": lines.append(f"        x{idx+1} = x{idx+1}")
             elif sign=="≤0": lines.append(f"        x{idx+1} = -y{idx+1}")
             else: lines.append(f"        x{idx+1} = a{idx+1} - b{idx+1}")
         for nm in extra_x: lines.append(f"        {nm} = {nm}")
-        lines+=["","+ Chuẩn hóa hàm mục tiêu:"]
+        lines+=["","_Chuẩn hóa hàm mục tiêu:"]
+        if engine.problem.objective_sense=="min": lines.append("    Hàm min, giữ nguyên:")
+        else: lines.append("    Hàm max → nhân (-1):")
         obj_expr=expr(engine.std_obj_coeffs, engine.std_names)
-        z_label = "Z'" if engine.problem.objective_sense == "max" else "Z"
-        if engine.problem.objective_sense=="min": 
-            lines.append("    Hàm min, giữ nguyên:")
-            lines.append(f"        min Z = {obj_expr}")
-        else: 
-            lines.append("    Hàm max → đặt Z' = −Z, min Z' = −max Z:")
-            lines.append(f"        min Z' = {obj_expr}")
-        lines+=["","=========================",f"*Dạng chuẩn của bài toán:","=========================",f"    min {z_label} = {obj_expr}","    {"]
+        lines.append(f"        min Z = {obj_expr}")
+        lines+=["","=========================","*Dạng chuẩn của bài toán:","=========================",f"    min Z = {obj_expr}","    {"]
         for i,row in enumerate(engine.std_constraints):
             lines.append(f"      {expr(row,engine.std_names[:len(row)])} ≤ {fmt_num(engine.std_rhs[i],mode)}")
-        slack_names=[nm for nm in engine.all_names if nm.startswith("w")]
-        # Điều kiện dấu: chỉ liệt kê các biến chuẩn hóa thực sự >= 0
-        # Biến gốc x_i tự do không >= 0; chỉ các biến thay thế (a_i, b_i, y_i) mới >= 0
-        nonneg_vars = []
-        for i, sign in enumerate(engine.problem.var_signs):
-            if sign == "≥0":
-                nonneg_vars.append(f"x{i+1}")
-            elif sign == "≤0":
-                nonneg_vars.append(f"y{i+1}")
-            else:  # tự do: a_i, b_i >= 0 (không phải x_i)
-                nonneg_vars.append(f"a{i+1}")
-                nonneg_vars.append(f"b{i+1}")
-        nonneg_vars += slack_names
-        # Thêm biến độ nhiễu
-        art_names_list = [engine.all_names[a] for a in engine.artificial_vars]
-        nonneg_vars += art_names_list
-        # Deduplicate giữ thứ tự
-        seen_nonneg = set(); nonneg_unique = []
-        for v in nonneg_vars:
-            if v not in seen_nonneg: seen_nonneg.add(v); nonneg_unique.append(v)
-        lines.append(f"    {', '.join(nonneg_unique)} ≥ 0")
+        slack_names=[nm for nm in engine.std_names if nm.startswith("x") and nm not in {f"x{i+1}" for i in range(n_orig)}]
+        aux_names=[nm for nm in engine.std_names if not nm.startswith("x")]
+        var_list=[f"x{i+1}" for i in range(n_orig)]+slack_names+aux_names
+        lines.append(f"    {', '.join(var_list)} ≥ 0")
         lines.append("    }")
         return "\n".join(lines)
 
     def _dict_lines(self, snapshot):
-        # Tạo danh sách dòng cho bảng từ vựng.
-        # Mỗi cột biến có độ rộng = max độ rộng hạng tử thực tế trên tất cả hàng.
-        # Khoảng cách giữa các cột = GAP cố định (không phụ thuộc nội dung).
-        # Bỏ separator │ để gọn hơn.
-        GAP = 2          # số khoảng trắng giữa hai cột liền kề
-        mode = self.data_mode.get()
-        names = snapshot.all_names
-
-        all_rows = [(snapshot.objective_label, snapshot.obj_const, snapshot.obj)]
-        for i, b in enumerate(snapshot.basis):
-            all_rows.append((names[b], snapshot.rhs[i], snapshot.rows[i]))
-
-        # Độ rộng cột nhãn và cột hằng số
-        label_w = max(len(row[0]) for row in all_rows)
-        const_strs = [fmt_num(row[1], mode) for row in all_rows]
-        const_w = max(len(s) for s in const_strs)
-
-        # Độ rộng mỗi cột biến: max độ rộng hạng tử (kể cả "0" nếu hệ số = 0 được bỏ → ô trống)
-        # Hạng tử rỗng ("") vẫn cần giữ chỗ bằng đúng độ rộng cột → không dùng ljust mà dùng rjust
-        col_w = []
-        col_cells = []   # col_cells[row_idx][col_idx] = chuỗi hạng tử (có thể rỗng)
-        for _ in all_rows:
-            col_cells.append([])
-
-        for j, name in enumerate(names):
-            w = 0
-            for ri, (_, _, coeffs) in enumerate(all_rows):
-                s = term_str(coeffs.get(j, Fraction(0)), name, mode)
-                col_cells[ri].append(s)
-                w = max(w, len(s))
-            col_w.append(w)   # độ rộng thực tế tối thiểu; có thể bằng 0 nếu cột toàn rỗng
-
-        def line_for(ri, label, const_s):
-            label_part = label.ljust(label_w)
-            # Dòng objective (ri=0): nếu const=0 và có hạng tử thì bỏ "0" đi
-            row_const, _, row_coeffs = all_rows[ri]
-            has_terms = any(row_coeffs.get(j, Fraction(0)) != 0 for j in range(len(names)))
-            if ri == 0 and row_const == 0 and has_terms:
-                const_part = " " * const_w   # giữ chỗ nhưng không in "0"
-            else:
-                const_part = const_s.rjust(const_w)
-            # Mỗi ô: ljust theo col_w[j] (giữ chỗ cho ô rỗng)
-            term_parts = [col_cells[ri][j].ljust(col_w[j]) for j in range(len(names))]
-            # Ghép bằng GAP khoảng trắng, sau đó rstrip để bỏ trailing spaces
-            term_part = (" " * GAP).join(term_parts).rstrip()
-            return f"{label_part} = {const_part}    {term_part}"
-
-        lines = []
-        for ri, ((label, const, coeffs), const_s) in enumerate(zip(all_rows, const_strs)):
-            lines.append(line_for(ri, label, const_s))
+        # Tạo danh sách dòng văn bản cho bảng từ vựng (dictionary) tại một snapshot.
+        # Mỗi dòng: "[tên biến cơ sở] = [hằng số]  [hệ số biến phi cơ sở…]"
+        mode=self.data_mode.get(); names=snapshot.all_names
+        widths=[]
+        for j,name in enumerate(names):
+            ml=len(name)
+            for c in [snapshot.obj.get(j,Fraction(0))]+[r.get(j,Fraction(0)) for r in snapshot.rows]:
+                ml=max(ml,len(term_str(c,name,mode)))
+            widths.append(max(8,min(14,ml+2)))
+        def line_for(label,const,coeffs):
+            out=[f"{label} = {fmt_num(const,mode)}"]
+            for j,name in enumerate(names):
+                out.append(term_str(coeffs.get(j,Fraction(0)),name,mode).ljust(widths[j]))
+            return " ".join(out).rstrip()
+        lines=[line_for(snapshot.objective_label, snapshot.obj_const, snapshot.obj)]
+        for i,b in enumerate(snapshot.basis):
+            lines.append(line_for(names[b], snapshot.rhs[i], snapshot.rows[i]))
         return lines
 
     def _insert_snapshot(self, snapshot, title, tags=None):
@@ -1742,174 +1540,61 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             if step.after is not None:
                 self._insert_snapshot(step.after,f"Sau xoay bước {step.iteration}:")
                 self.output.insert(tk.END,"\n")
-        if trace.status=="optimal": self.output.insert(tk.END,"  Tất cả hệ số trên hàng mục tiêu đều ≥ 0 → từ vựng hiện tại là tối ưu.\n","note")
-        elif trace.status=="unbounded":
-            # Tìm biến vào từ bước cuối để nêu lý do
-            last_entering = None
-            if trace.steps:
-                last_step = trace.steps[-1]
-                if last_step.status == "unbounded" and last_step.entering is not None:
-                    last_entering = trace.steps[-1].before.all_names[last_step.entering]
-            reason = f" (có biến vào {last_entering} nhưng không có biến ra)" if last_entering else ""
-            self.output.insert(tk.END,f"  Bài toán không giới nội{reason}.\n","warn")
+        if trace.status=="optimal": self.output.insert(tk.END,"  Các hệ số cải thiện không còn âm → tối ưu.\n","note")
+        elif trace.status=="unbounded": self.output.insert(tk.END,"  Bài toán không giới nội.\n","warn")
         elif trace.status=="cycle": self.output.insert(tk.END,"  Dantzig lặp → chuyển sang Bland.\n","warn")
 
     def _render_result(self, report):
+        # Xóa output cũ và in toàn bộ lời giải theo cấu trúc:
+        #   1. Bài toán gốc + chuẩn hóa
+        #   2. Pha 1 (nếu cần biến phụ x0): trace Dantzig [→ Bland nếu lặp]
+        #   3. Pha 2: trace Dantzig [→ Bland nếu lặp]
+        #   4. KẾT LUẬN: trạng thái, z*, nghiệm tối ưu (hoặc họ vô số nghiệm)
         self.output.delete("1.0",tk.END)
         engine=report.engine; mode=self.data_mode.get()
         self.output.insert(tk.END,self._format_problem(engine)+"\n\n","h1")
         self.output.insert(tk.END,self._format_standardization(engine)+"\n","mono")
-
-        is_max = engine.problem.objective_sense == "max"
-
         if self._has_aux_phase1(engine):
-            # ── Pha 1: biến phụ x0 ──────────────────────────────────────
-            self.output.insert(tk.END,
-                "\n=============================\n"
-                " Pha 1: Giải bài toán bổ trợ\n"
-                "=============================\n","h2")
-            self.output.insert(tk.END,
-                "  Tồn tại b_i < 0 → cần tìm cơ sở khả thi ban đầu bằng bài toán bổ trợ.\n"
-                "  Bài toán bổ trợ: min x0\n"
-                "  Thêm x0 vào tất cả các ràng buộc: Ax − x0 ≤ b, x0, x1, ... ≥ 0\n"
-                "  Xoay x0 vào: biến ra là hàng có b_i âm nhất.\n\n","note")
+            self.output.insert(tk.END,"\n=============================\n*Pha 1: Giải bài toán bổ trợ\n=============================\n","h2")
+            self.output.insert(tk.END,"_ Tồn tại b_i âm → giải pha 1 bằng biến phụ x0\n","note")
             self._render_trace("Pha 1",report.dantzig)
             if report.phase1_bland is not None and report.phase1_bland is not report.dantzig:
-                self.output.insert(tk.END,"\n🔄 Bland (sau Dantzig xoay vòng ở Pha 1)\n","h2")
+                self.output.insert(tk.END,"\n*Bland sau Dantzig lặp ở pha 1\n","h2")
                 self._render_trace("Pha 1 - Bland",report.phase1_bland)
             self.output.insert(tk.END,"\n")
             if report.status=="infeasible":
                 self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
-                inf_msg = "z_max = −∞" if is_max else "z_min = +∞"
-                self.output.insert(tk.END,
-                    f"  Vô nghiệm: sau Pha 1, x0 vẫn còn trong cơ sở (x0 > 0)\n"
-                    f"  → miền chấp nhận được rỗng → {inf_msg}.\n","warn")
-                return
+                self.output.insert(tk.END,"  Vô nghiệm: x0 vẫn trong cơ sở.\n","warn"); return
             if report.phase2_trace is not None:
-                # In bước chuyển sang pha 2
-                snap1 = report.dantzig.final_snapshot
-                if snap1:
-                    self.output.insert(tk.END,
-                        "\n────────────────────────────────────\n"
-                        " Chuyển sang Pha 2\n"
-                        "────────────────────────────────────\n","h2")
-                    self.output.insert(tk.END,
-                        f"  δ = x0 = 0 → cho x0 = 0, loại x0 khỏi tất cả ràng buộc.\n"
-                        f"  Thay hàm mục tiêu gốc vào từ vựng hiện tại:\n\n","note")
-                self.output.insert(tk.END,
-                    "\n============================\n"
-                    " Pha 2: Giải bài toán gốc\n"
-                    "============================\n","h2")
+                self.output.insert(tk.END,"\n============================\n*Pha 2: Giải bài toán gốc\n============================\n","h2")
                 self._render_trace("Pha 2",report.phase2_trace)
             else:
-                inf_msg = "z_max = −∞" if is_max else "z_min = +∞"
-                self.output.insert(tk.END,f"\nKẾT LUẬN\n  Vô nghiệm → {inf_msg}.\n","warn"); return
-
-        elif engine.artificial_vars:
-            # ── Pha 1 cổ điển: biến độ nhiễu từ ràng buộc = ────────────
-            self.output.insert(tk.END,
-                "\n=============================\n"
-                " Pha 1: Loại biến độ nhiễu\n"
-                "=============================\n","h2")
-            art_names = [engine.all_names[a] for a in engine.artificial_vars]
-            self.output.insert(tk.END,
-                f"  Ràng buộc đẳng thức → thêm biến độ nhiễu: {', '.join(art_names)}\n"
-                f"  Bài toán bổ trợ: min {' + '.join(art_names)}\n\n","note")
-            self._render_trace("Pha 1",report.dantzig)
-            if report.phase1_bland is not None and report.phase1_bland is not report.dantzig:
-                self.output.insert(tk.END,"\n🔄 Bland (sau Dantzig xoay vòng ở Pha 1)\n","h2")
-                self._render_trace("Pha 1 - Bland",report.phase1_bland)
-            self.output.insert(tk.END,"\n")
-            if report.status=="infeasible":
-                self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
-                inf_msg = "z_max = −∞" if is_max else "z_min = +∞"
-                self.output.insert(tk.END,
-                    f"  Vô nghiệm: Pha 1 kết thúc với hàm bổ trợ > 0\n"
-                    f"  → biến độ nhiễu ({', '.join(art_names)}) không thể đưa ra khỏi cơ sở\n"
-                    f"  → {inf_msg}.\n","warn")
-                return
-            if report.phase2_trace is not None:
-                self.output.insert(tk.END,
-                    "\n────────────────────────────────────\n"
-                    " Chuyển sang Pha 2\n"
-                    "────────────────────────────────────\n","h2")
-                self.output.insert(tk.END,
-                    f"  min bổ trợ = 0, các biến độ nhiễu ({', '.join(art_names)}) = 0 → loại khỏi từ vựng.\n"
-                    f"  Thay hàm mục tiêu gốc vào từ vựng hiện tại.\n\n","note")
-                self._render_trace("Pha 2",report.phase2_trace)
-            else:
-                inf_msg = "z_max = −∞" if is_max else "z_min = +∞"
-                self.output.insert(tk.END,f"\nKẾT LUẬN\n  Vô nghiệm → {inf_msg}.\n","warn"); return
-
+                self.output.insert(tk.END,"\nKẾT LUẬN\n  Vô nghiệm.\n","warn"); return
         else:
-            # ── Không cần Pha 1 ─────────────────────────────────────────
-            self.output.insert(tk.END,
-                "\n============================\n"
-                " Không cần Pha 1\n"
-                "============================\n","h2")
-            self.output.insert(tk.END,
-                "  Tất cả b_i ≥ 0 → cơ sở w_1, ..., w_m là cơ sở khả thi ban đầu,\n"
-                "  không cần thực hiện Pha 1.\n\n"
-                "============================\n"
-                " Giải bài toán\n"
-                "============================\n","note")
-            self._render_trace("Giải bài toán",report.dantzig)
+            self.output.insert(tk.END,"\n============================\n*Pha 1:\n============================\n_ b_i ≥ 0, không cần pha 1.\n\n============================\n*Pha 2: Giải bài toán gốc\n============================\n","h2")
+            self._render_trace("Pha 2",report.dantzig)
             if report.bland is not None and report.bland is not report.dantzig:
-                self.output.insert(tk.END,"\n🔄 Bland (sau Dantzig xoay vòng)\n","h2")
-                self._render_trace("Bland",report.bland)
-
+                self.output.insert(tk.END,"\n*Bland sau Dantzig lặp ở pha 2\n","h2")
+                self._render_trace("Pha 2 - Bland",report.bland)
         final=report.phase2_trace.final_snapshot if report.phase2_trace and report.phase2_trace.final_snapshot else (report.bland.final_snapshot if report.bland and report.bland.final_snapshot else report.dantzig.final_snapshot)
-
-        # Không giới nội
         if report.status in ("unbounded",) or (report.bland and report.bland.status=="unbounded"):
-            self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
-            if is_max:
-                self.output.insert(tk.END,"  Bài toán không giới nội: z_max = +∞.\n","warn")
-            else:
-                self.output.insert(tk.END,"  Bài toán không giới nội: z_min = −∞.\n","warn")
-            return
+            self.output.insert(tk.END,"\nKẾT LUẬN\n  Không giới nội.\n","warn"); return
         if report.status=="cycle":
             self.output.insert(tk.END,"\nKẾT LUẬN\n  Dantzig và Bland đều lặp.\n","warn"); return
-
         obj_std=report.objective_std or Fraction(0)
         obj_orig=report.objective_orig or Fraction(0)
-
         if report.multiple_optimal and final and report.multiple_optimal_vars:
             for line in self._format_multiple_optimal_family(engine,final,report):
                 self.output.insert(tk.END,line+"\n","warn" if "vô số" in line else "note")
             self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
-            if is_max:
-                self.output.insert(tk.END,
-                    f"  Bài toán có vô số nghiệm tối ưu.\n"
-                    f"  z* = max Z = −(min Z') = −({fmt_num(obj_std,mode)}) = {fmt_num(obj_orig,mode)}\n")
-            else:
-                self.output.insert(tk.END,
-                    f"  Bài toán có vô số nghiệm tối ưu.\n"
-                    f"  z* = {fmt_num(obj_orig,mode)}\n","note")
+            self.output.insert(tk.END,f"  Tối ưu ({report.used_method.upper()}), z* = {fmt_num(obj_std,mode)}, gốc: {fmt_num(obj_orig,mode)}\n","note")
             for line in self._format_multiple_optimal_conclusion(engine,final,report):
                 self.output.insert(tk.END,line+"\n","note")
         else:
             self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
-            method_lbl = "Dantzig" if report.used_method == "dantzig" else "Bland"
-            if is_max:
-                self.output.insert(tk.END,
-                    f"  Tối ưu ({method_lbl}).\n"
-                    f"  z* = max Z = −(min Z') = −({fmt_num(obj_std,mode)}) = {fmt_num(obj_orig,mode)}\n",
-                    "note")
-            else:
-                self.output.insert(tk.END,
-                    f"  Tối ưu ({method_lbl}).\n"
-                    f"  z* = {fmt_num(obj_orig,mode)}\n",
-                    "note")
-            n_orig = len(engine.problem.var_signs)
-            sol_strs = [fmt_num(report.solution_orig.get(i, Fraction(0)), mode) for i in range(n_orig)]
-            val_w = max(len(s) for s in sol_strs)
-            var_w = max(len(f"x{i+1}") for i in range(n_orig))
-            self.output.insert(tk.END,"  Nghiệm tối ưu:\n","note")
-            for i, val_s in enumerate(sol_strs):
-                nm = f"x{i+1}".ljust(var_w)
-                val = val_s.rjust(val_w)
-                self.output.insert(tk.END, f"    {nm} = {val}\n", "note")
+            self.output.insert(tk.END,f"  Tối ưu ({report.used_method.upper()}).\n  z* (bảng min) = {fmt_num(obj_std,mode)}\n  Giá trị gốc: {fmt_num(obj_orig,mode)}\n","note")
+            orig_parts=[f"x{i+1} = {fmt_num(report.solution_orig.get(i,Fraction(0)),mode)}" for i in range(len(engine.problem.var_signs))]
+            self.output.insert(tk.END,"  Nghiệm: "+"  ;  ".join(orig_parts)+"\n","note")
         d=(report.dantzig.degenerate_steps or 0)+((report.bland.degenerate_steps if report.bland else 0) or 0)
         if d: self.output.insert(tk.END,f"  Có {d} bước suy biến.\n","warn")
 
@@ -1919,146 +1604,21 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return bool(getattr(engine,"need_aux_phase1",False))
 
     def run_solver(self):
+        # Điểm vào chính khi người dùng bấm "Chạy giải thuật" hoặc nhấn Ctrl+Alt+R:
+        #   1. Thu thập dữ liệu từ giao diện (_collect_problem)
+        #   2. Tạo SimplexEngine và gọi solve_full() để giải đầy đủ
+        #   3. Lưu kết quả vào last_report / last_problem để xuất file / trực quan
+        #   4. Hiển thị lời giải và cập nhật thanh trạng thái
+        #   5. Bắt ngoại lệ (nhập liệu sai / lỗi giải thuật) và thông báo lỗi
         try:
-            prob = self._collect_problem()
-            
-            engine_d = SimplexEngine(prob)
-            engine_b = SimplexEngine(prob)
-
-            rhs = engine_d.initial_rhs
-            has_negative = any(b < 0 for b in rhs)
-            has_zero = any(b == 0 for b in rhs)
-
-            self.status_var.set("Đang chạy đa luồng giải mã bài toán...")
-            self.update_idletasks()
-            
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future_d = executor.submit(engine_d.solve_full, "dantzig")
-                future_b = executor.submit(engine_b.solve_full, "bland")
-                report_d = future_d.result()
-                report_b = future_b.result()
-
-            self.last_problem = prob
-
-            def count_steps(rep):
-                if not rep or rep.status == "cycle": 
-                    return float('inf')
-                steps_set = set()
-                if rep.dantzig:
-                    for s in rep.dantzig.steps: steps_set.add(id(s))
-                if rep.bland:
-                    for s in rep.bland.steps: steps_set.add(id(s))
-                if rep.phase1_bland:
-                    for s in rep.phase1_bland.steps: steps_set.add(id(s))
-                if rep.phase2_trace:
-                    for s in rep.phase2_trace.steps: steps_set.add(id(s))
-                return len(steps_set)
-
-            steps_d = count_steps(report_d)
-            steps_b = count_steps(report_b)
-
-            if has_negative:
-                priority = "haipha"
-            elif has_zero:
-                priority = "bland"
-            else:
-                priority = "dantzig"
-
-            if has_negative:
-                optimal = "haipha"
-            else:
-                if steps_b < steps_d:
-                    optimal = "bland"
-                else:
-                    optimal = "dantzig"
-
-            # Hàm tạo nhãn cho RadioButton
-            def format_label(base_name, key, is_disabled):
-                if is_disabled:
-                    return base_name  
-                if priority == key and optimal == key:
-                    return f"{base_name} (Ưu tiên và Tối ưu)"
-                elif priority == key:
-                    return f"{base_name} (Ưu tiên)"
-                elif optimal == key:
-                    return f"{base_name} (Tối ưu)"
-                return base_name
-
-            if has_negative:
-                state_d, lbl_d = tk.DISABLED, format_label("Dantzig", "dantzig", True)
-                state_b, lbl_b = tk.DISABLED, format_label("Bland", "bland", True)
-                state_hp, lbl_hp = tk.NORMAL, format_label("Hai Pha", "haipha", False)
-                reason_th = "Thuật toán ưu tiên: Hai Pha (vì tồn tại b_i < 0, bắt buộc dùng bài toán phụ để tìm cơ sở khả thi)."
-                
-                step_str = str(steps_d) if steps_d != float('inf') else "..."
-                reason_op = f"Thuật toán tối ưu: Hai Pha (bắt buộc dùng, tổng số bước giải: {step_str})."
-                default_view = "haipha"
-                
-            elif has_zero:
-                state_d, lbl_d = tk.NORMAL, format_label("Dantzig", "dantzig", False)
-                state_b, lbl_b = tk.NORMAL, format_label("Bland", "bland", False)
-                state_hp, lbl_hp = tk.DISABLED, format_label("Hai Pha", "haipha", True)
-                reason_th = "Thuật toán ưu tiên: Bland (vì b_i ≥ 0 nhưng có b_i = 0, ưu tiên Bland để chặn nguy cơ lặp suy biến)."
-                
-                if optimal == "bland":
-                    sd_str = str(steps_d) if steps_d != float('inf') else "vô hạn (lặp)"
-                    reason_op = f"Thuật toán tối ưu: Bland (giải xong trong {steps_b} bước xoay, Dantzig cần {sd_str} bước)."
-                else:
-                    reason_op = f"Thuật toán tối ưu: Dantzig (giải trong {steps_d} bước xoay, vượt qua suy biến nhanh hơn Bland {steps_b} bước)."
-                default_view = "bland"
-                
-            else:
-                state_d, lbl_d = tk.NORMAL, format_label("Dantzig", "dantzig", False)
-                state_b, lbl_b = tk.NORMAL, format_label("Bland", "bland", False)
-                state_hp, lbl_hp = tk.DISABLED, format_label("Hai Pha", "haipha", True)
-                reason_th = "Thuật toán ưu tiên: Dantzig (vì tất cả b_i > 0, cơ sở khả thi hoàn toàn. Dantzig là lựa chọn tự nhiên)."
-                
-                if optimal == "dantzig":
-                    reason_op = f"Thuật toán tối ưu: Dantzig (giải trong {steps_d} bước xoay, nhanh hơn Bland {steps_b} bước)."
-                else:
-                    reason_op = f"Thuật toán tối ưu: Bland (Bland giải {steps_b} bước, bất ngờ nhanh hơn Dantzig {steps_d} bước)."
-                default_view = "dantzig"
-
-            self.lbl_theory.config(text=reason_th)
-            self.lbl_optimal.config(text=reason_op)
-
-            for widget in self.comparison_frame.winfo_children():
-                widget.destroy()
-
-            ttk.Radiobutton(self.comparison_frame, text=lbl_d, variable=self.selected_method_view, value="dantzig", state=state_d).pack(anchor="w", pady=2)
-            ttk.Radiobutton(self.comparison_frame, text=lbl_b, variable=self.selected_method_view, value="bland", state=state_b).pack(anchor="w", pady=2)
-            ttk.Radiobutton(self.comparison_frame, text=lbl_hp, variable=self.selected_method_view, value="haipha", state=state_hp).pack(anchor="w", pady=2)
-
-            self.selected_method_view.set(default_view)
-
-            btn_view = ttk.Button(self.comparison_frame, text="Hiển thị lời giải phương pháp đã chọn", style="Accent.TButton", 
-                                  command=lambda: self._view_selected_solution(report_d, report_b))
-            btn_view.pack(anchor="w", pady=(10, 0))
-
-            self.comparison_frame.grid() 
-
-            self._view_selected_solution(report_d, report_b)
-            self._set_solution_available(True)
-            self.status_var.set("Đã giải xong (Đa luồng).")
-
+            prob=self._collect_problem()
+            engine=SimplexEngine(prob)
+            report=engine.solve_full()
+            self.last_problem=prob; self.last_report=report
+            self._render_result(report)
+            self._set_solution_available(report.status=="optimal")
+            self.status_var.set(f"Đã giải xong: {report.status}.")
         except Exception as exc:
-            self.last_report = None
-            self._set_solution_available(False)
-            messagebox.showerror("Lỗi nhập liệu / giải thuật", str(exc))
-            self.status_var.set("Có lỗi xảy ra. Kiểm tra lại dữ liệu nhập.")
-            self.output.config(state=tk.NORMAL)
-            self.output.delete("1.0", tk.END)
-            self.output.config(state=tk.DISABLED)
-
-    def _view_selected_solution(self, report_d, report_b):
-        sel = self.selected_method_view.get()
-        self.output.config(state=tk.NORMAL)
-        
-        if sel == "bland":
-            self.last_report = report_b
-            self._render_result(report_b)
-        else:
-            self.last_report = report_d
-            self._render_result(report_d)
-            
-        self.output.config(state=tk.DISABLED)
+            self.last_report=None; self._set_solution_available(False)
+            messagebox.showerror("Lỗi nhập liệu / giải thuật",str(exc))
+            self.status_var.set("Có lỗi xảy ra.")
