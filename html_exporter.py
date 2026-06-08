@@ -259,11 +259,21 @@ def _render_trace_html(trace: SolveTrace, mode: str) -> str:
 
     # Trạng thái kết thúc
     if trace.status == "optimal":
-        parts.append("<p class='success'>✅ Tất cả hệ số cải thiện ≥ 0 → Tối ưu.</p>")
+        parts.append("<p class='success'>✅ Tất cả hệ số trên hàng mục tiêu đều ≥ 0 → từ vựng hiện tại là tối ưu.</p>")
     elif trace.status == "unbounded":
-        parts.append("<p class='warn'>⚠️ Bài toán không giới nội (unbounded).</p>")
+        last_entering = None
+        if trace.steps:
+            last_step = trace.steps[-1]
+            if last_step.status == "unbounded" and last_step.entering is not None:
+                last_entering = trace.steps[-1].before.all_names[last_step.entering]
+        reason = f" (có biến vào ${_tex_var(last_entering)}$ nhưng không có biến ra)" if last_entering else ""
+        parts.append(f"<p class='warn'>⚠️ Bài toán không giới nội{reason}.</p>")
     elif trace.status == "cycle":
-        parts.append("<p class='warn'>🔄 Phát hiện xoay vòng (cycling) → chuyển sang Bland.</p>")
+        rule = "Dantzig" if trace.steps and trace.steps[0].method == "dantzig" else "Bland"
+        if rule == "Dantzig":
+            parts.append("<p class='warn'>🔄 Dantzig phát hiện xoay vòng → chuyển sang Bland.</p>")
+        else:
+            parts.append("<p class='warn'>🔄 Bland phát hiện xoay vòng.</p>")
 
     return "".join(parts)
 
@@ -350,13 +360,6 @@ def _standardization_html(engine, mode: str) -> str:
     # ── Bước 2: Chuẩn hóa ràng buộc ──────────────────────────────────────
     parts.append("<p>📌 <b>Bước 2: Chuẩn hóa ràng buộc</b></p>")
 
-    parts.append("<pre>")
-
-    for line in engine.standardization_lines:
-        parts.append(line)
-
-    parts.append("</pre>")
-
     std_names_list = getattr(engine, "std_names", None)
     all_names_list = getattr(engine, "all_names", None)
 
@@ -372,45 +375,78 @@ def _standardization_html(engine, mode: str) -> str:
             ps.append(f"{sign}{body}")
         return " ".join(ps).lstrip("+").strip() or "0"
 
+    # Xây dựng bảng từ ràng buộc GỐC (prob.constraints), map sang std_constraints.
+    # Ràng buộc "=" đã được tách thành 2 dòng ≤ trong engine, mỗi dòng có 1 biến bù.
     table_rows = []
-    w_count = 0
+    w_count = 0          # đếm biến bù (w1, w2, ...) theo thứ tự trong std_constraints
+    std_row_idx = 0      # con trỏ vào engine.std_constraints
 
-    for i, (std_row, s, rhs_val) in enumerate(
-        zip(engine.std_constraints, engine.std_senses, engine.std_rhs),
-        start=1
-    ):
-        s_tex = {"≤": "\\leq", "≥": "\\geq", "=": "="}.get(s, s)
-        rhs_tex = _frac(rhs_val, mode)
+    for orig_i, cons in enumerate(prob.constraints):
+        orig_sense = cons["sense"]
+        # Tính lhs gốc (sau khi thay thế biến nếu có) từ std_constraints
+        if orig_sense == "=":
+            # Ràng buộc = → 2 dòng std liên tiếp: row_a (≤ b) và row_b (≤ -b)
+            row_a  = engine.std_constraints[std_row_idx]
+            rhs_a  = engine.std_rhs[std_row_idx]
+            std_row_idx += 1
+            row_b  = engine.std_constraints[std_row_idx]
+            rhs_b  = engine.std_rhs[std_row_idx]
+            std_row_idx += 1
 
-        lhs_str = lhs_tex(std_row)
+            w_count += 1; slack_a = f"w_{{{w_count}}}"
+            w_count += 1; slack_b = f"w_{{{w_count}}}"
 
-        if s == "≤":
-            w_count += 1
-            slack_nm = f"w_{{{w_count}}}"
-            orig_rb = f"${lhs_str} {s_tex} {rhs_tex}$"
-            std_rb  = f"${lhs_str} + {slack_nm} = {rhs_tex}$"
-            note    = f"thêm biến bù $+{slack_nm}$"
-        elif s == "≥":
-            w_count += 1
-            slack_nm = f"w_{{{w_count}}}"
-            neg_lhs = lhs_tex([-c for c in std_row])
-            neg_rhs = _frac(-rhs_val, mode)
-            orig_rb = f"${lhs_str} {s_tex} {rhs_tex}$"
-            std_rb  = f"${neg_lhs} + {slack_nm} = {neg_rhs}$"
-            note    = f"nhân $(-1)$: $\\geq \\to \\leq$, thêm biến bù $+{slack_nm}$"
+            lhs_a = lhs_tex(row_a)
+            lhs_b = lhs_tex(row_b)
+            rhs_a_tex = _frac(rhs_a, mode)
+            rhs_b_tex = _frac(rhs_b, mode)
+
+            # Biểu diễn dạng gốc trước khi thay thế biến
+            orig_lhs = lhs_tex([Fraction(c) for c in cons["coeffs"]] + [Fraction(0)] * (len(row_a) - len(cons["coeffs"])))
+            orig_rhs = _frac(Fraction(cons["rhs"]), mode)
+
+            sub_rows = (
+                f"<tr>"
+                f"<td style='white-space:nowrap' rowspan='2'><b>RB {orig_i+1}</b></td>"
+                f"<td style='white-space:nowrap' rowspan='2'>${orig_lhs} = {orig_rhs}$</td>"
+                f"<td style='white-space:nowrap;color:#0F766E'>$\\Rightarrow\\;{lhs_a} + {slack_a} = {rhs_a_tex}$</td>"
+                f"<td style='color:#475569;font-size:0.88rem'>tách thành RB {orig_i+1}a: thêm $+{slack_a}$</td>"
+                f"</tr>"
+                f"<tr>"
+                f"<td style='white-space:nowrap;color:#0F766E'>$\\Rightarrow\\;{lhs_b} + {slack_b} = {rhs_b_tex}$</td>"
+                f"<td style='color:#475569;font-size:0.88rem'>tách thành RB {orig_i+1}b: nhân $(-1)$, thêm $+{slack_b}$</td>"
+                f"</tr>"
+            )
+            table_rows.append(sub_rows)
         else:
-            orig_rb = f"${lhs_str} = {rhs_tex}$"
-            std_rb  = f"${lhs_str} = {rhs_tex}$"
-            note    = ""
+            std_row = engine.std_constraints[std_row_idx]
+            rhs_val = engine.std_rhs[std_row_idx]
+            std_row_idx += 1
 
-        table_rows.append(
-            f"<tr>"
-            f"<td style='white-space:nowrap'><b>RB {i+1}</b></td>"
-            f"<td style='white-space:nowrap'>{orig_rb}</td>"
-            f"<td style='white-space:nowrap;color:#0F766E'>$\\Rightarrow$&nbsp;{std_rb}</td>"
-            f"<td style='color:#475569;font-size:0.88rem'>{note}</td>"
-            f"</tr>"
-        )
+            lhs_str = lhs_tex(std_row)
+            rhs_tex = _frac(rhs_val, mode)
+            orig_lhs = lhs_tex([Fraction(c) for c in cons["coeffs"]] + [Fraction(0)] * (len(std_row) - len(cons["coeffs"])))
+            orig_rhs = _frac(Fraction(cons["rhs"]), mode)
+
+            w_count += 1
+            slack_nm = f"w_{{{w_count}}}"
+            if orig_sense == "≤":
+                orig_rb = f"${orig_lhs} \\leq {orig_rhs}$"
+                std_rb  = f"${lhs_str} + {slack_nm} = {rhs_tex}$"
+                note    = f"thêm biến bù $+{slack_nm}$"
+            else:  # ≥
+                orig_rb = f"${orig_lhs} \\geq {orig_rhs}$"
+                std_rb  = f"${lhs_str} + {slack_nm} = {rhs_tex}$"
+                note    = f"nhân $(-1)$: $\\geq \\to \\leq$, thêm biến bù $+{slack_nm}$"
+
+            table_rows.append(
+                f"<tr>"
+                f"<td style='white-space:nowrap'><b>RB {orig_i+1}</b></td>"
+                f"<td style='white-space:nowrap'>{orig_rb}</td>"
+                f"<td style='white-space:nowrap;color:#0F766E'>$\\Rightarrow$&nbsp;{std_rb}</td>"
+                f"<td style='color:#475569;font-size:0.88rem'>{note}</td>"
+                f"</tr>"
+            )
 
     parts.append(
         "<table style='border-collapse:collapse;width:100%;margin:8px 0 16px'>"
@@ -509,8 +545,15 @@ def _conclusion_html(report: SolveReport, engine, mode: str) -> str:
     status = report.status
 
     if status == "infeasible":
-        parts.append("<div class='conclusion warn-box'><h3>KẾT LUẬN: Vô nghiệm</h3>"
-                     "<p>Biến phụ $x_0$ còn trong cơ sở sau Pha 1 → Bài toán vô nghiệm.</p></div>")
+        has_aux = bool(getattr(engine, "need_aux_phase1", False))
+        if has_aux:
+            reason = "Biến phụ $x_0$ vẫn còn trong cơ sở sau Pha 1 (giá trị $x_0 > 0$) → miền chấp nhận được rỗng."
+        else:
+            art_names = [engine.all_names[a] for a in engine.artificial_vars] if engine.artificial_vars else []
+            art_str = ", ".join(f"${nm}$" for nm in art_names) if art_names else "biến độ nhiễu"
+            reason = f"Pha 1 kết thúc với hàm bổ trợ $> 0$ — {art_str} không thể đưa ra khỏi cơ sở → bài toán vô nghiệm."
+        parts.append(f"<div class='conclusion warn-box'><h3>KẾT LUẬN: Vô nghiệm</h3>"
+                     f"<p>{reason}</p></div>")
         return "".join(parts)
 
     if status == "unbounded":
@@ -519,16 +562,23 @@ def _conclusion_html(report: SolveReport, engine, mode: str) -> str:
         parts.append(f"<div class='conclusion warn-box'><h3>KẾT LUẬN: Không giới nội</h3>"
                      f"<p>Có biến vào nhưng không có biến ra khả thi → {z_val}.</p></div>")
         return "".join(parts)
-
     if status == "cycle":
-        parts.append("<div class='conclusion warn-box'><h3>KẾT LUẬN: Xoay vòng</h3>"
-                     "<p>Cả Dantzig và Bland đều phát hiện xoay vòng.</p></div>")
+        rule = "Dantzig" if report.dantzig.steps and report.dantzig.steps[0].method == "dantzig" else "Bland"
+        if rule == "Dantzig" and report.bland is not None and report.bland.status == "cycle":
+            parts.append("<div class='conclusion warn-box'><h3>KẾT LUẬN: Xoay vòng</h3>"
+                         "<p>Cả Dantzig và Bland đều phát hiện xoay vòng.</p></div>")
+        elif rule == "Dantzig":
+            parts.append("<div class='conclusion warn-box'><h3>KẾT LUẬN: Xoay vòng</h3>"
+                         "<p>Dantzig phát hiện xoay vòng — hãy thử Bland's Rule.</p></div>")
+        else:
+            parts.append("<div class='conclusion warn-box'><h3>KẾT LUẬN: Xoay vòng</h3>"
+                         "<p>Bland phát hiện xoay vòng.</p></div>")
         return "".join(parts)
 
     # Optimal
     obj_std  = report.objective_std  or Fraction(0)
     obj_orig = report.objective_orig or Fraction(0)
-    method_label = report.used_method.upper()
+    method_label = "Dantzig" if report.used_method == "dantzig" else "Bland"
     is_max = engine.problem.objective_sense == "max"
 
     parts.append(f"<div class='conclusion success-box'>")
@@ -774,7 +824,18 @@ def export_report_html(report: SolveReport, mode: str = "Phân số") -> str:
         body_parts.append("<div class='phase-section'>")
         body_parts.append("<h2>🔧 Pha 1</h2>")
         if has_aux:
-            body_parts.append("<p class='note'>Tồn tại $b_i &lt; 0$ → Giải pha 1 bằng biến phụ $x_0$.</p>")
+            body_parts.append(
+                "<p class='note'>Tồn tại $b_i &lt; 0$ → cần tìm cơ sở khả thi ban đầu bằng bài toán bổ trợ. "
+                "Thêm biến phụ $x_0$ vào tất cả ràng buộc, giải $\\min\\; x_0$; "
+                "xoay $x_0$ vào hàng có $b_i$ âm nhất.</p>"
+            )
+        elif has_art:
+            art_names = [engine.all_names[a] for a in engine.artificial_vars]
+            art_str = ", ".join(f"${nm}$" for nm in art_names)
+            body_parts.append(
+                f"<p class='note'>Ràng buộc đẳng thức → thêm biến độ nhiễu: {art_str}. "
+                f"Bài toán bổ trợ: $\\min\\;({'+'.join(art_names)})$.</p>"
+            )
         body_parts.append(_render_trace_html(report.dantzig, mode))
         if report.phase1_bland is not None and report.phase1_bland is not report.dantzig:
             body_parts.append("<h3>🔄 Bland (sau Dantzig xoay vòng ở Pha 1)</h3>")
@@ -787,13 +848,26 @@ def export_report_html(report: SolveReport, mode: str = "Phân số") -> str:
 
         if report.phase2_trace:
             body_parts.append("<div class='phase-section'>")
-            body_parts.append("<h2>🎯 Pha 2</h2>")
+            body_parts.append("<h2>🎯 Pha 2 — Giải bài toán gốc</h2>")
+            if has_aux:
+                body_parts.append(
+                    "<p class='note'>$x_0 = 0$ → loại $x_0$ khỏi tất cả ràng buộc, "
+                    "thay hàm mục tiêu gốc vào từ vựng hiện tại.</p>"
+                )
+            elif has_art:
+                body_parts.append(
+                    "<p class='note'>$\\min$ bổ trợ $= 0$, các biến độ nhiễu $= 0$ → loại khỏi từ vựng, "
+                    "thay hàm mục tiêu gốc vào từ vựng hiện tại.</p>"
+                )
             body_parts.append(_render_trace_html(report.phase2_trace, mode))
             body_parts.append("</div>")
     else:
         body_parts.append("<div class='phase-section'>")
         body_parts.append("<h2>🎯 Giải bài toán</h2>")
-        body_parts.append("<p class='note'>$b_i \\geq 0$ với mọi $i$ → không cần Pha 1, giải trực tiếp.</p>")
+        body_parts.append(
+            "<p class='note'>Tất cả $b_i \\geq 0$ → cơ sở ban đầu là $w_1, \\ldots, w_m$ khả thi, "
+            "không cần thực hiện Pha 1.</p>"
+        )
         body_parts.append(_render_trace_html(report.dantzig, mode))
         if report.bland is not None and report.bland is not report.dantzig:
             body_parts.append("<h3>🔄 Bland (sau Dantzig xoay vòng)</h3>")
