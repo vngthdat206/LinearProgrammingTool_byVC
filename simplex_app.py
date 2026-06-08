@@ -194,24 +194,21 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         config.grid(row=0, column=0, sticky="ew")
         config.columnconfigure(1, weight=1)
 
-        ttk.Label(config, text="Kiểu dữ liệu:").grid(
-            row=0, column=0, sticky="w", pady=3)
-        ttk.Combobox(config, textvariable=self.data_mode,
+        setup_row = ttk.Frame(config)
+        setup_row.grid(row=0, column=0, columnspan=2, sticky="ew", pady=3)
+        
+        ttk.Label(setup_row, text="Kiểu dữ liệu:").pack(side="left", padx=(0, 4))
+        ttk.Combobox(setup_row, textvariable=self.data_mode,
                      values=["Phân số", "Số thập phân"],
-                     state="readonly", width=12).grid(
-            row=0, column=1, sticky="w", pady=3)
+                     state="readonly", width=12).pack(side="left", padx=(0, 16))
 
-        ttk.Label(config, text="Số biến (1–5):").grid(
-            row=1, column=0, sticky="w", pady=3)
-        ttk.Spinbox(config, from_=1, to=5, textvariable=self.n_vars,
-                    width=10, command=self._build_inputs).grid(
-            row=1, column=1, sticky="w", pady=3)
+        ttk.Label(setup_row, text="Số biến (1-5):").pack(side="left", padx=(0, 4))
+        ttk.Spinbox(setup_row, from_=1, to=5, textvariable=self.n_vars,
+                    width=5, command=self._build_inputs).pack(side="left", padx=(0, 16))
 
-        ttk.Label(config, text="Số ràng buộc (1–10):").grid(
-            row=2, column=0, sticky="w", pady=3)
-        ttk.Spinbox(config, from_=1, to=10, textvariable=self.n_constraints,
-                    width=10, command=self._build_inputs).grid(
-            row=2, column=1, sticky="w", pady=3)
+        ttk.Label(setup_row, text="Số ràng buộc (1-10):").pack(side="left", padx=(0, 4))
+        ttk.Spinbox(setup_row, from_=1, to=10, textvariable=self.n_constraints,
+                    width=5, command=self._build_inputs).pack(side="left")
 
         ttk.Button(config, text="Tạo lại bảng nhập",
                    command=self._build_inputs).grid(
