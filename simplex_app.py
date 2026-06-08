@@ -358,6 +358,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             right, wrap="none", font=("Consolas", 12),
             bg="#FFFFFF", fg="#1E293B",
             insertbackground="#1E293B", relief="flat", padx=14, pady=10,
+            state=tk.DISABLED
         )
         self.output.grid(row=0, column=0, sticky="nsew")
         # Định nghĩa các "tag" màu sắc dùng trong vùng lời giải:
@@ -1766,10 +1767,16 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             method_key = self._normalize_method_choice(self.method_preference.get())
             report=engine.solve_full(preferred_method=method_key)
             self.last_problem=prob; self.last_report=report
+
+            self.output.config(state=tk.NORMAL)
             self._render_result(report)
+            self.output.config(state=tk.DISABLED)
+
             self._set_solution_available(report.status in ("optimal", "unbounded", "infeasible", "cycle"))
             self.status_var.set(f"Đã giải xong: {report.status}.")
         except Exception as exc:
             self.last_report=None; self._set_solution_available(False)
             messagebox.showerror("Lỗi nhập liệu / giải thuật",str(exc))
             self.status_var.set("Có lỗi xảy ra.")
+
+            self.output.config(state=tk.DISABLED)
