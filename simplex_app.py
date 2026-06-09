@@ -46,6 +46,8 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
         # Biến lưu kết quả giải thuật gần nhất để có thể xuất file hoặc trực quan hóa nếu phù hợp
         self.last_report: Optional[SolveReport] = None
+        self.last_report_d: Optional[SolveReport] = None   # report của engine Dantzig
+        self.last_report_b: Optional[SolveReport] = None   # report của engine Bland
         self.last_problem: Optional[ProblemData] = None
         self.export_btn: Optional[tk.Button] = None
         self.html_btn: Optional[tk.Button] = None
@@ -592,6 +594,8 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             scrollregion=self.input_canvas.bbox("all"))
         self.last_problem = None
         self.last_report = None
+        self.last_report_d = None
+        self.last_report_b = None
         self._set_solution_available(False)
         self._update_viz_btn_state()
 
@@ -1280,12 +1284,9 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return pts
 
     def visualize_two_variable_problem(self) -> None:
-        # Mở cửa sổ trực quan hóa đầy đủ cho bài toán 2 biến:
-        #   1. Thu thập và xác thực dữ liệu nhập
-        #   2. Khởi tạo matplotlib (backend TkAgg)
-        #   3. Tính miền khả thi, đỉnh, điểm tối ưu
-        #   4. Vẽ: miền khả thi (fill) → ràng buộc (đường) → đồng mức (dash) → đỉnh → sao tối ưu
-        #   5. Thêm panel thông tin, điều khiển zoom, tương tác kéo-thả / cuộn chuột
+        from viz3d import (
+            _extract_simplex_path_2d, _get_combined_trace, _find_optimal_edge_2d
+        )
         try:
             prob = self._collect_problem()
         except Exception as exc:
@@ -1304,14 +1305,76 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         halfplanes = self._build_halfplanes(prob)
         vertices = self._deduplicate_points(
             self._compute_feasible_vertices(halfplanes))
-        xmin, xmax, ymin, ymax = self._compute_plot_bounds(vertices, halfplanes)
-        _, _, X, Y = self._create_meshgrid(xmin, xmax, ymin, ymax)
-        feasible_mask = self._compute_feasible_region(halfplanes, X, Y)
         c1, c2 = float(prob.obj_coeffs[0]), float(prob.obj_coeffs[1])
         vertex_values = [(p[0], p[1], c1*p[0]+c2*p[1]) for p in vertices]
         maximize = prob.objective_sense == "max"
-        optimal_point = self._find_optimal_vertex(vertex_values, maximize)
 
+        report = self.last_report
+        engine = report.engine if report else None
+        status = report.status if report else ("infeasible" if not vertices else "optimal")
+
+        # Xác định điểm tối ưu từ engine (chính xác hơn dò đỉnh hình học)
+        if report and engine and report.solution_orig and status not in ("infeasible", "unbounded"):
+            so = report.solution_orig
+            ox = float(so.get(0, Fraction(0)))
+            oy = float(so.get(1, Fraction(0)))
+            oz = c1*ox + c2*oy
+            optimal_point = (ox, oy, oz)
+        else:
+            optimal_point = self._find_optimal_vertex(vertex_values, maximize)
+
+        # Vô số nghiệm: tìm đoạn tối ưu với dung sai tương đối
+        multi_opt: List[Tuple[float, float]] = []
+        if report and report.multiple_optimal and optimal_point:
+            opt_z = optimal_point[2]
+            # Dung sai tương đối: lấy max(1e-6, 1e-4 * |opt_z|) để tránh bỏ sót
+            tol = max(1e-6, 1e-4 * abs(opt_z)) if abs(opt_z) > 1e-10 else 1e-6
+            multi_opt = [(x, y) for x, y, z in vertex_values if abs(z - opt_z) < tol]
+
+        # Đường đi simplex
+        path_d: List[Tuple[float, float]] = []
+        path_b: List[Tuple[float, float]] = []
+        if engine and report:
+            report_bland = self.last_report_b
+            engine_b = report_bland.engine if report_bland else engine
+            trace_d, trace_b = _get_combined_trace(report, report_bland)
+            path_d = _extract_simplex_path_2d(trace_d, engine, 2)
+            if trace_b:
+                path_b = _extract_simplex_path_2d(trace_b, engine_b, 2)
+
+        # ── Tính bounds cơ bản ──────────────────────────────────────────
+        all_pts_for_bounds = list(vertices) + [p[:2] for p in path_d + path_b]
+        xmin, xmax, ymin, ymax = self._compute_plot_bounds(
+            all_pts_for_bounds if all_pts_for_bounds else vertices, halfplanes)
+
+        # Không giới nội: tính vector mũi tên rồi mở rộng bounds TRƯỚC khi vẽ
+        _unb_sx = _unb_sy = 0.0
+        _unb_dx = _unb_dy = 0.0
+        if status == "unbounded":
+            norm_c = math.sqrt(c1**2 + c2**2)
+            if norm_c > 1e-12:
+                sign_u = 1 if maximize else -1
+                if vertices:
+                    _unb_sx = sum(p[0] for p in vertices) / len(vertices)
+                    _unb_sy = sum(p[1] for p in vertices) / len(vertices)
+                else:
+                    _unb_sx, _unb_sy = (xmin+xmax)/2, (ymin+ymax)/2
+                span = min(xmax-xmin, ymax-ymin) * 0.50
+                _unb_dx = sign_u * c1 / norm_c * span
+                _unb_dy = sign_u * c2 / norm_c * span
+                # Mở rộng bounds để mũi tên không bị cắt
+                tip_x = _unb_sx + _unb_dx * 1.65
+                tip_y = _unb_sy + _unb_dy * 1.65
+                extra = span * 0.3
+                xmin = min(xmin, tip_x - extra)
+                xmax = max(xmax, tip_x + extra)
+                ymin = min(ymin, tip_y - extra)
+                ymax = max(ymax, tip_y + extra)
+
+        _, _, X, Y = self._create_meshgrid(xmin, xmax, ymin, ymax)
+        feasible_mask = self._compute_feasible_region(halfplanes, X, Y)
+
+        # ── Dựng cửa sổ ──────────────────────────────────────────────────
         win = self._create_visualization_window()
         outer = tk.Frame(win, bg="#0f172a")
         outer.grid(row=0, column=0, sticky="nsew")
@@ -1329,20 +1392,281 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         self._plot_objective_contours(ax, c1, c2, vertex_values,
                                       xmin, xmax, ymin, ymax, maximize)
         self._plot_vertices(ax, vertex_values, maximize)
-        self._plot_optimal_point(ax, optimal_point, maximize)
+
+        # Vẽ đặc trưng theo trạng thái
+        if status == "unbounded":
+            self._plot_unbounded_arrow_2d(ax, _unb_sx, _unb_sy,
+                                          _unb_dx, _unb_dy)
+        elif multi_opt and len(multi_opt) >= 2:
+            self._plot_optimal_edge_2d(ax, multi_opt, vertex_values)
+        elif status != "infeasible":
+            self._plot_optimal_point(ax, optimal_point, maximize)
+
+        if status == "infeasible":
+            self._plot_infeasible_notice_2d(ax, xmin, xmax, ymin, ymax)
+
+        # Đường đi simplex
+        self._plot_simplex_paths_2d(ax, path_d, path_b,
+                                    xmin, xmax, ymin, ymax, status)
+
         self._configure_axes(ax, xmin, xmax, ymin, ymax)
+        self._add_status_subtitle_2d(ax, status, report)
 
         canvas = FigureCanvasTkAgg(fig, master=canvas_host)
         canvas.draw()
         canvas_widget = canvas.get_tk_widget()
         canvas_widget.configure(bg="#0f172a", highlightthickness=0, bd=0)
         canvas_widget.grid(row=0, column=0, sticky="nsew")
-        self._create_info_panel(canvas_host, prob, vertices, vertex_values,
-                                 optimal_point, maximize)
+
+        self._create_info_panel_v2(canvas_host, prob, vertices, vertex_values,
+                                   optimal_point, maximize, status=status,
+                                   multi_opt=multi_opt,
+                                   path_d=path_d, path_b=path_b)
         self._create_zoom_controls(outer, ax, canvas,
                                    (xmin, xmax), (ymin, ymax))
         self._enable_canvas_interactions(ax, canvas)
         win.focus_force()
+
+    # ── Vẽ mũi tên không giới nội 2D ────────────────────────────────────
+    def _plot_unbounded_arrow_2d(self, ax, sx, sy, dx, dy):
+        """Vẽ mũi tên chỉ hướng tối ưu hóa tiến tới vô cùng.
+        sx,sy: gốc mũi tên.  dx,dy: vector hướng (đã tính sẵn, khớp với bounds).
+        """
+        # Mũi tên chính
+        ax.annotate("", xy=(sx + dx, sy + dy), xytext=(sx, sy),
+                    arrowprops=dict(arrowstyle="-|>", color="#f87171",
+                                   lw=2.8, mutation_scale=22),
+                    zorder=9)
+        # Mũi tên phụ — tiếp tục từ 70% đến 130%
+        ax.annotate("", xy=(sx + dx*1.50, sy + dy*1.50),
+                    xytext=(sx + dx*0.85, sy + dy*0.85),
+                    arrowprops=dict(arrowstyle="-|>", color="#fca5a5",
+                                   lw=1.8, mutation_scale=16),
+                    zorder=9)
+        ax.text(sx + dx*1.55, sy + dy*1.55,
+                "  → ∞\n(không giới nội)",
+                color="#f87171", fontsize=10, fontweight="bold",
+                bbox=dict(boxstyle="round,pad=0.3",
+                          fc="#1c1917", ec="#f87171", alpha=0.93),
+                zorder=10)
+
+    # ── Vẽ đoạn tối ưu vô số nghiệm 2D ─────────────────────────────────
+    def _plot_optimal_edge_2d(self, ax,
+                               multi_opt: List[Tuple[float, float]],
+                               vertex_values: List[Tuple[float, float, float]] = None):
+        """Highlight đoạn/cạnh tối ưu khi bài toán có vô số nghiệm.
+        multi_opt: danh sách các đỉnh (x,y) có cùng giá trị mục tiêu tối ưu.
+        """
+        if len(multi_opt) < 2:
+            return
+
+        # Sắp xếp theo góc quanh trọng tâm để nối đúng thứ tự
+        cx_m = sum(p[0] for p in multi_opt) / len(multi_opt)
+        cy_m = sum(p[1] for p in multi_opt) / len(multi_opt)
+        multi_sorted = sorted(multi_opt,
+                              key=lambda p: math.atan2(p[1]-cy_m, p[0]-cx_m))
+
+        # Tô sáng đoạn/cạnh tối ưu
+        xs_m = [p[0] for p in multi_sorted]
+        ys_m = [p[1] for p in multi_sorted]
+        ax.plot(xs_m, ys_m,
+                color="#fbbf24", linewidth=7, alpha=0.70, zorder=6,
+                solid_capstyle="round",
+                label="Đoạn tối ưu (vô số nghiệm)")
+
+        # Đánh dấu từng đỉnh tối ưu bằng ngôi sao
+        for px, py in multi_sorted:
+            ax.scatter([px], [py], s=260, marker="*",
+                       color="#f59e0b", edgecolors="#fde68a",
+                       linewidths=1.2, zorder=8)
+
+        # Ghi chú tại đỉnh đầu tiên, kèm giá trị Z*
+        px0, py0 = multi_sorted[0]
+        opt_z_str = ""
+        if vertex_values:
+            # Tìm z-value tương ứng với đỉnh đầu tiên
+            for vx, vy, vz in vertex_values:
+                if abs(vx - px0) < 1e-6 and abs(vy - py0) < 1e-6:
+                    opt_z_str = f"\nZ* = {vz:.4g}"
+                    break
+        ax.annotate(
+            f"Vô số nghiệm tối ưu\n(toàn bộ đoạn vàng đều tối ưu){opt_z_str}",
+            xy=(px0, py0), xytext=(16, 20), textcoords="offset points",
+            fontsize=9, fontweight="bold", color="#fbbf24",
+            bbox=dict(boxstyle="round,pad=0.35",
+                      fc="#1e293b", ec="#f59e0b", alpha=0.96),
+            arrowprops=dict(arrowstyle="->", color="#D97706", lw=1.5),
+            zorder=10)
+
+    # ── Vẽ thông báo vô nghiệm 2D ───────────────────────────────────────
+    def _plot_infeasible_notice_2d(self, ax, xmin, xmax, ymin, ymax):
+        cx = (xmin + xmax) / 2
+        cy = (ymin + ymax) / 2
+        ax.text(cx, cy, "Miền khả thi rỗng\nBài toán VÔ NGHIỆM",
+                ha="center", va="center",
+                fontsize=16, fontweight="bold", color="#f87171",
+                bbox=dict(boxstyle="round,pad=0.6",
+                          fc="#1c1917", ec="#f87171", alpha=0.94),
+                zorder=15)
+
+    # ── Vẽ đường đi simplex 2D ───────────────────────────────────────────
+    def _plot_simplex_paths_2d(self, ax, path_d, path_b,
+                                xmin, xmax, ymin, ymax, status):
+        # Dantzig – cam đậm, đường liền
+        if len(path_d) >= 2:
+            xs_d = [p[0] for p in path_d]
+            ys_d = [p[1] for p in path_d]
+            ax.plot(xs_d, ys_d, color="#f97316", linewidth=2.4,
+                    linestyle="-", alpha=0.92,
+                    marker="o", markersize=7,
+                    markerfacecolor="#f97316", markeredgecolor="white",
+                    markeredgewidth=0.9, zorder=7,
+                    label="Đường đi Dantzig")
+            for k, (px, py) in enumerate(path_d):
+                ax.annotate(f"D{k}", xy=(px, py),
+                            xytext=(5, 5), textcoords="offset points",
+                            fontsize=8, color="#f97316",
+                            bbox=dict(boxstyle="round,pad=0.15",
+                                      fc="#1c1917", ec="#f97316", alpha=0.88),
+                            zorder=8)
+
+        # Bland – xanh cyan, nét đứt
+        if len(path_b) >= 2:
+            xs_b = [p[0] for p in path_b]
+            ys_b = [p[1] for p in path_b]
+            ax.plot(xs_b, ys_b, color="#22d3ee", linewidth=2.2,
+                    linestyle="--", alpha=0.88,
+                    marker="s", markersize=6,
+                    markerfacecolor="#22d3ee", markeredgecolor="white",
+                    markeredgewidth=0.8, zorder=7,
+                    label="Đường đi Bland")
+            for k, (px, py) in enumerate(path_b):
+                ax.annotate(f"B{k}", xy=(px, py),
+                            xytext=(-5, 8), textcoords="offset points",
+                            fontsize=8, color="#22d3ee",
+                            bbox=dict(boxstyle="round,pad=0.15",
+                                      fc="#1c1917", ec="#22d3ee", alpha=0.88),
+                            zorder=8)
+
+        # Nếu Dantzig xoay vòng mà Bland hội tụ: chú thích
+        if status == "cycle" and len(path_d) >= 2 and len(path_b) >= 2:
+            ax.text(xmin + (xmax-xmin)*0.02, ymax - (ymax-ymin)*0.04,
+                    "⚠ Dantzig: xoay vòng (không hội tụ)\n"
+                    "✓ Bland: hội tụ đến điểm tối ưu",
+                    fontsize=8, color="#fbbf24", va="top",
+                    bbox=dict(boxstyle="round,pad=0.3",
+                              fc="#1c1917", ec="#fbbf24", alpha=0.92),
+                    zorder=12)
+
+    # ── Thêm subtitle 2D cho tiêu đề ────────────────────────────────────
+    def _add_status_subtitle_2d(self, ax, status, report):
+        status_map = {
+            "optimal": "Nghiệm tối ưu duy nhất",
+            "infeasible": "Bài toán VÔ NGHIỆM",
+            "unbounded": "Bài toán KHÔNG GIỚI NỘI",
+            "cycle": "Dantzig xoay vòng → dùng Bland",
+        }
+        if report and report.multiple_optimal and status == "optimal":
+            txt = "VÔ SỐ NGHIỆM TỐI ƯU"
+            color = "#fbbf24"
+        else:
+            txt = status_map.get(status, f"Trạng thái: {status}")
+            color = {"infeasible": "#f87171", "unbounded": "#fb923c",
+                     "cycle": "#fbbf24"}.get(status, "#4ade80")
+
+        # Đặt tiêu đề kết hợp
+        ax.set_title(
+            f"Miền chấp nhận được và đường đồng mức hàm mục tiêu\n"
+            f"[{txt}]",
+            fontsize=13, fontweight="bold", pad=10,
+            color="#e2e8f0")
+        # Tô màu dòng trạng thái trong title (chỉ có thể dùng 2 màu qua legend workaround)
+
+    # ── Panel thông tin v2 (thay _create_info_panel) ────────────────────
+    def _create_info_panel_v2(self, parent, prob, vertices, vv, optimal,
+                               maximize, status="optimal", multi_opt=None,
+                               path_d=None, path_b=None):
+        multi_opt = multi_opt or []
+        path_d = path_d or []
+        path_b = path_b or []
+
+        info_frame = tk.Frame(parent, bg="#1e293b", bd=0,
+                              highlightthickness=1, highlightbackground="#334155")
+        info_frame.place(relx=0.987, rely=0.02, anchor="ne", width=320, height=280)
+
+        canvas_i = tk.Canvas(info_frame, bg="#1e293b", highlightthickness=0)
+        sb_i = ttk.Scrollbar(info_frame, orient="vertical", command=canvas_i.yview)
+        canvas_i.configure(yscrollcommand=sb_i.set)
+        sb_i.pack(side="right", fill="y")
+        canvas_i.pack(side="left", fill="both", expand=True)
+        inner_i = tk.Frame(canvas_i, bg="#1e293b")
+        canvas_i.create_window((0, 0), window=inner_i, anchor="nw")
+        inner_i.bind("<Configure>",
+                     lambda e: canvas_i.configure(
+                         scrollregion=canvas_i.bbox("all")))
+
+        def lbl(text, fg="#cbd5e1", font=("Segoe UI", 9)):
+            tk.Label(inner_i, text=text, bg="#1e293b", fg=fg,
+                     font=font, anchor="w", wraplength=295).pack(
+                fill="x", padx=8, pady=1)
+
+        def sep():
+            tk.Frame(inner_i, bg="#334155", height=1).pack(
+                fill="x", padx=6, pady=2)
+
+        lbl("Tóm tắt", fg="#e2e8f0", font=("Segoe UI", 10, "bold"))
+        sep()
+
+        lbl(f"Kiểu: {'Bài toán Max' if prob.objective_sense == 'max' else 'Bài toán Min'}")
+        lbl(f"Số ràng buộc: {len(prob.constraints)}")
+        lbl(f"Số đỉnh khả thi: {len(vertices)}")
+
+        # Trạng thái
+        status_map = {
+            "optimal": ("Nghiệm tối ưu", "#4ade80"),
+            "infeasible": ("VÔ NGHIỆM", "#f87171"),
+            "unbounded": ("KHÔNG GIỚI NỘI", "#fb923c"),
+            "cycle": ("Xoay vòng Dantzig", "#fbbf24"),
+        }
+        if multi_opt:
+            st_text, st_col = "VÔ SỐ NGHIỆM TỐI ƯU", "#fbbf24"
+        else:
+            st_text, st_col = status_map.get(status, (status, "#94a3b8"))
+        sep()
+        lbl(f"Trạng thái: {st_text}", fg=st_col, font=("Segoe UI", 9, "bold"))
+
+        if optimal and status not in ("infeasible", "unbounded"):
+            sep()
+            if multi_opt:
+                lbl("Điểm tối ưu bất kỳ trên đoạn:", fg="#fbbf24")
+                lbl(f"  ({optimal[0]:.4g}, {optimal[1]:.4g})", fg="#fbbf24")
+            else:
+                lbl(f"Điểm tối ưu: ({optimal[0]:.4g}, {optimal[1]:.4g})",
+                    fg="#fbbf24")
+            lbl(f"Giá trị mục tiêu: {optimal[2]:.4g}", fg="#fbbf24")
+
+        # Đường đi simplex
+        if path_d or path_b:
+            sep()
+            lbl("Đường đi đơn hình:", fg="#94a3b8",
+                font=("Segoe UI", 8, "bold"))
+            if path_d:
+                lbl(f"Dantzig: {len(path_d)} bước", fg="#f97316",
+                    font=("Segoe UI", 8))
+                for k, (px, py) in enumerate(path_d):
+                    lbl(f"  D{k}: ({px:.3g}, {py:.3g})",
+                        fg="#fed7aa", font=("Consolas", 8))
+            if path_b:
+                lbl(f"Bland: {len(path_b)} bước", fg="#22d3ee",
+                    font=("Segoe UI", 8))
+                for k, (px, py) in enumerate(path_b):
+                    lbl(f"  B{k}: ({px:.3g}, {py:.3g})",
+                        fg="#a5f3fc", font=("Consolas", 8))
+
+        sep()
+        lbl("Kéo chuột trái để pan", fg="#64748b")
+        lbl("Lăn chuột để zoom", fg="#64748b")
+
 
     def _create_visualization_window(self):
         # Tạo cửa sổ Toplevel riêng biệt cho trực quan hóa với giao diện tối, đồng bộ 2D/3D.
@@ -1767,6 +2091,8 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             else:  # tự do: a_i, b_i >= 0 (không phải x_i)
                 nonneg_vars.append(f"a{i+1}")
                 nonneg_vars.append(f"b{i+1}")
+        nonneg_vars += slack_names
+        # Thêm biến độ nhiễu
         art_names_list = [engine.all_names[a] for a in engine.artificial_vars]
         nonneg_vars += art_names_list
         # Deduplicate giữ thứ tự
@@ -1918,68 +2244,112 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         free_vars = report.multiple_optimal_vars or []
         if not free_vars:
             return []
-        param_idx = free_vars[0]
-        param_name = snapshot.all_names[param_idx]
-        lines = [
-            f"  Do hệ số trước {param_name} bằng 0. Bài toán có vô số nghiệm.",
-            f"  Cho các biến không cơ sở (trừ {param_name}) bằng 0:",
-            "",
-            f"    z = {fmt_num(snapshot.obj_const, mode)}"
-        ]
 
-        # Chỉ hiển thị các biến gốc x_i trong cơ sở (không hiển thị w, a, x0)
-        n_orig = len(engine.problem.var_signs)
         aux_idx = getattr(engine, "phase1_aux_var_index", None)
         art_set = set(engine.artificial_vars)
 
-        def row_expr_local(ri):
-            terms = [(snapshot.rows[ri].get(fv, Fraction(0)), snapshot.all_names[fv])
-                     for fv in free_vars if snapshot.rows[ri].get(fv, Fraction(0)) != 0]
+        # ── Tên các biến tự do ───────────────────────────────────────────
+        free_names = [snapshot.all_names[j] for j in free_vars]
+
+        # ── Dòng mở đầu ─────────────────────────────────────────────────
+        if len(free_vars) == 1:
+            lines = [
+                f"  Do hệ số trước {free_names[0]} bằng 0. Bài toán có vô số nghiệm.",
+                f"  Cho các biến không cơ sở (trừ {free_names[0]}) bằng 0:",
+            ]
+        else:
+            names_str = ", ".join(free_names)
+            lines = [
+                f"  Do hệ số trước {names_str} đều bằng 0. Bài toán có vô số nghiệm.",
+                f"  Cho các biến không cơ sở (trừ {names_str}) bằng 0:",
+            ]
+
+        # ── Giá trị mục tiêu ─────────────────────────────────────────────
+        lines.append("")
+        lines.append(f"    z = {fmt_num(snapshot.obj_const, mode)}")
+
+        # ── Biến cơ sở biểu diễn theo các biến tự do ────────────────────
+        def row_expr_multi(ri):
+            """Biểu diễn biến cơ sở ri theo TẤT CẢ biến tự do."""
+            terms = []
+            for fv in free_vars:
+                coef = snapshot.rows[ri].get(fv, Fraction(0))
+                if coef != 0:
+                    terms.append((coef, snapshot.all_names[fv]))
             return self._linear_text(snapshot.rhs[ri], terms, mode)
 
         for ri, b in enumerate(snapshot.basis):
-            # Bỏ qua biến a (artificial) và x0
             if b in art_set:
                 continue
             if aux_idx is not None and b == aux_idx:
                 continue
             b_name = snapshot.all_names[b]
-            lines.append(f"    {b_name} = {row_expr_local(ri)}")
+            lines.append(f"    {b_name} = {row_expr_multi(ri)}")
 
-        # Suy ra điều kiện của tham số từ ràng buộc biến cơ sở ≥ 0
+        # ── Điều kiện khả thi của từng biến tự do ───────────────────────
+        # Với mỗi biến cơ sở b_i: b_i = rhs[i] + Σ_j col_j[i]*t_j >= 0
+        # khi các biến tự do khác = 0, suy ra điều kiện 1 chiều cho từng t_j.
+        # Nhưng khi có nhiều biến tự do, điều kiện phụ thuộc lẫn nhau.
+        # Ta trình bày điều kiện đầy đủ: b_i >= 0 cho tất cả i.
         lines.append("")
-        lines.append(f"  Để nghiệm khả thi (các biến cơ sở ≥ 0), từ các ràng buộc trên suy ra:")
-        param_conditions = []
+        lines.append("  Để nghiệm khả thi (các biến cơ sở ≥ 0), cần:")
+
         for ri, b in enumerate(snapshot.basis):
-            coef_param = snapshot.rows[ri].get(param_idx, Fraction(0))
-            rhs_val = snapshot.rhs[ri]
-            b_name = snapshot.all_names[b]
-            if coef_param == 0:
+            if b in art_set:
                 continue
-            # Bỏ qua x0
             if aux_idx is not None and b == aux_idx:
                 continue
-            bound = -rhs_val / coef_param
-            if coef_param > 0:
-                param_conditions.append(("≥", bound, b_name, rhs_val, coef_param))
+            b_name = snapshot.all_names[b]
+            # Kiểm tra hàng này có phụ thuộc biến tự do không
+            has_free = any(snapshot.rows[ri].get(fv, Fraction(0)) != 0
+                           for fv in free_vars)
+            if not has_free:
+                continue
+            # In: b_name = rhs + ... >= 0
+            expr = row_expr_multi(ri)
+            lines.append(f"    {b_name} = {expr} ≥ 0")
+
+        # ── Nếu chỉ có 1 biến tự do: rút gọn thành khoảng [lower, upper] ──
+        if len(free_vars) == 1:
+            param_idx = free_vars[0]
+            param_name = free_names[0]
+            param_conditions = []
+            for ri, b in enumerate(snapshot.basis):
+                if aux_idx is not None and b == aux_idx:
+                    continue
+                coef = snapshot.rows[ri].get(param_idx, Fraction(0))
+                rhs_val = snapshot.rhs[ri]
+                if coef == 0:
+                    continue
+                bound = -rhs_val / coef
+                if coef > 0:
+                    param_conditions.append(("≥", bound, snapshot.all_names[b]))
+                else:
+                    param_conditions.append(("≤", bound, snapshot.all_names[b]))
+            param_conditions.append(("≥", Fraction(0), f"{param_name} ≥ 0"))
+            for cond_type, bound_val, src_name in param_conditions:
+                if src_name == f"{param_name} ≥ 0":
+                    lines.append(f"    {param_name} ≥ 0  (bản thân biến phi cơ sở)")
+                else:
+                    lines.append(f"    {param_name} {cond_type} {fmt_num(bound_val, mode)}  "
+                                 f"(từ {src_name} ≥ 0)")
+            lowers = [b for (t, b, *_) in param_conditions if t == "≥"]
+            uppers = [b for (t, b, *_) in param_conditions if t == "≤"]
+            lower = max(lowers) if lowers else Fraction(0)
+            if uppers:
+                upper = min(uppers)
+                lines.append(f"  → Điều kiện tham số rút gọn: "
+                             f"{fmt_num(lower, mode)} ≤ {param_name} ≤ {fmt_num(upper, mode)}")
             else:
-                param_conditions.append(("≤", bound, b_name, rhs_val, coef_param))
-        # Điều kiện param ≥ 0 (bản thân là biến không cơ sở ≥ 0)
-        param_conditions.append(("≥", Fraction(0), param_name + " ≥ 0", Fraction(0), Fraction(0)))
-        for cond_type, bound_val, src_name, rhs_v, coef_v in param_conditions:
-            if coef_v == 0:
-                lines.append(f"    {param_name} ≥ 0  (bản thân biến phi cơ sở)")
-            else:
-                lines.append(f"    {param_name} {cond_type} {fmt_num(bound_val, mode)}  (từ {src_name} ≥ 0)")
-        # Rút gọn: lấy lower bound lớn nhất và upper bound nhỏ nhất
-        lowers = [b for (t, b, *_) in param_conditions if t == "≥"]
-        uppers = [b for (t, b, *_) in param_conditions if t == "≤"]
-        lower = max(lowers) if lowers else Fraction(0)
-        if uppers:
-            upper = min(uppers)
-            lines.append(f"  → Điều kiện tham số rút gọn: {fmt_num(lower, mode)} ≤ {param_name} ≤ {fmt_num(upper, mode)}")
+                lines.append(f"  → Điều kiện tham số rút gọn: {param_name} ≥ {fmt_num(lower, mode)}")
+
         else:
-            lines.append(f"  → Điều kiện tham số rút gọn: {param_name} ≥ {fmt_num(lower, mode)}")
+            # Nhiều biến tự do: nhắc thêm điều kiện bản thân
+            lines.append("")
+            lines.append("  Thêm điều kiện bản thân các biến phi cơ sở:")
+            for fn in free_names:
+                lines.append(f"    {fn} ≥ 0")
+
         return lines
 
     def _format_multiple_optimal_conclusion(self, engine, snapshot, report):
@@ -1987,88 +2357,103 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         free_vars = report.multiple_optimal_vars or []
         if not free_vars:
             return []
-        param_idx = free_vars[0]
-        param_name = snapshot.all_names[param_idx]
-        lines = ["  Nghiệm tổng quát:"]
+
+        aux_idx = getattr(engine, "phase1_aux_var_index", None)
+        art_set = set(engine.artificial_vars)
+        free_set = set(free_vars)
+        free_names = [snapshot.all_names[j] for j in free_vars]
         bp = {b: i for i, b in enumerate(snapshot.basis)}
 
-        # Tính điều kiện tham số (chỉ từ biến cơ sở, bỏ qua x0)
-        aux_idx = getattr(engine, "phase1_aux_var_index", None)
-        param_conditions = []
-        for ri, b in enumerate(snapshot.basis):
-            if aux_idx is not None and b == aux_idx:
-                continue
-            coef_param = snapshot.rows[ri].get(param_idx, Fraction(0))
-            rhs_val = snapshot.rhs[ri]
-            if coef_param == 0:
-                continue
-            bound = -rhs_val / coef_param
-            if coef_param > 0:
-                param_conditions.append(("≥", bound))
-            else:
-                param_conditions.append(("≤", bound))
-        param_conditions.append(("≥", Fraction(0)))
-        lowers = [b for (t, b) in param_conditions if t == "≥"]
-        uppers = [b for (t, b) in param_conditions if t == "≤"]
-        lower = max(lowers) if lowers else Fraction(0)
-        upper = min(uppers) if uppers else None
-
+        # ── Hàm biểu diễn biến chuẩn từ từ vựng ──────────────────────
         def std_expr(idx):
+            """Trả về (const, terms) biểu diễn biến std idx theo các biến tự do."""
             if idx in bp:
                 r = bp[idx]
-                terms = [(snapshot.rows[r].get(fv, Fraction(0)), snapshot.all_names[fv])
-                         for fv in free_vars if snapshot.rows[r].get(fv, Fraction(0)) != 0]
+                terms = [(snapshot.rows[r].get(fv, Fraction(0)),
+                          snapshot.all_names[fv])
+                         for fv in free_vars
+                         if snapshot.rows[r].get(fv, Fraction(0)) != 0]
                 return snapshot.rhs[r], terms
-            if idx in free_vars:
+            if idx in free_set:
                 return Fraction(0), [(Fraction(1), snapshot.all_names[idx])]
             return Fraction(0), []
 
-        # In các biến gốc x_i (chỉ x, không w)
+        # ── In nghiệm tổng quát ─────────────────────────────────────────
+        lines = ["  Nghiệm tổng quát:"]
         for orig_idx, mapping in enumerate(engine.variable_mapping):
-            if len(mapping) == 1 and mapping[0][0] == param_idx and mapping[0][1] == Fraction(1):
-                # Đây chính là tham số tự do → in điều kiện đã tính
-                if upper is not None:
-                    lines.append(f"    x{orig_idx+1} = x{orig_idx+1}  (tham số tự do)")
-                else:
-                    lines.append(f"    x{orig_idx+1} = x{orig_idx+1}  (tham số tự do)")
-                continue
-            # Biến tự do: mapping = [(j1, +1), (j2, -1)] → x = a - b
-            if len(mapping) == 2 and mapping[0][1] == Fraction(1) and mapping[1][1] == Fraction(-1):
-                j1, j2 = mapping[0][0], mapping[1][0]
-                obj_c_j2 = snapshot.obj.get(j2, Fraction(0))
-                c1, t1 = std_expr(j1)
-                a_expr = self._linear_text(c1, t1, mode)
-                c2, t2 = std_expr(j2)
-                b_expr = self._linear_text(c2, t2, mode)
-                a_name = engine.all_names[j1]
-                b_name = engine.all_names[j2]
-                if obj_c_j2 == 0 and j2 in free_vars:
-                    lines.append(f"    {a_name} = {a_expr}  (từ từ vựng)")
-                    const_diff = c1 - c2
-                    terms_diff = list(t1)
-                    for coef, nm in t2:
-                        terms_diff.append((-coef, nm))
-                    merged: Dict[str, Fraction] = {}
-                    for coef, nm in terms_diff:
-                        merged[nm] = merged.get(nm, Fraction(0)) + coef
-                    merged_terms = [(v, k) for k, v in merged.items() if v != 0]
-                    x_expr = self._linear_text(const_diff, merged_terms, mode)
-                    lines.append(f"    x{orig_idx+1} = {a_name} - {b_name} = {a_expr} - ({b_expr}) = {x_expr}")
+            var_name = f"x{orig_idx+1}"
+
+            # Biến ≥0 hoặc ≤0: mapping = [(j, ±1)]
+            if len(mapping) == 1:
+                j, coef_m = mapping[0]
+                if j in free_set and coef_m == Fraction(1):
+                    # Chính là biến tự do (x_i = t_j)
+                    lines.append(f"    {var_name} = {snapshot.all_names[j]}  (tham số tự do)")
                     continue
-            const = Fraction(0)
-            terms = []
+                if j in free_set and coef_m == Fraction(-1):
+                    # x_i = -t_j (biến ≤0)
+                    lines.append(f"    {var_name} = -{snapshot.all_names[j]}  (tham số tự do)")
+                    continue
+                # Biến trong cơ sở hoặc phi cơ sở không tự do
+                sc, st = std_expr(j)
+                const_val = coef_m * sc
+                terms_val = [(coef_m * c, n) for c, n in st]
+                lines.append(f"    {var_name} = {self._linear_text(const_val, terms_val, mode)}")
+                continue
+
+            # Biến tự do gốc: mapping = [(j1, +1), (j2, -1)] → x = j1 - j2
+            if len(mapping) == 2:
+                j1, j2 = mapping[0][0], mapping[1][0]
+                c1_v, t1 = std_expr(j1)
+                c2_v, t2 = std_expr(j2)
+                # Gộp: x = (c1 + Σt1) - (c2 + Σt2)
+                const_diff = c1_v - c2_v
+                merged: Dict[str, Fraction] = {}
+                for coef, nm in t1:
+                    merged[nm] = merged.get(nm, Fraction(0)) + coef
+                for coef, nm in t2:
+                    merged[nm] = merged.get(nm, Fraction(0)) - coef
+                merged_terms = [(v, k) for k, v in merged.items() if v != 0]
+                lines.append(f"    {var_name} = {self._linear_text(const_diff, merged_terms, mode)}")
+                continue
+
+            # Trường hợp khác: tính trực tiếp
+            const_val = Fraction(0)
+            terms_val = []
             for si, mc in mapping:
                 sc, st = std_expr(si)
-                const += mc * sc
-                for coef, name in st:
-                    terms.append((mc * coef, name))
-            lines.append(f"    x{orig_idx+1} = {self._linear_text(const, terms, mode)}")
+                const_val += mc * sc
+                for c, n in st:
+                    terms_val.append((mc * c, n))
+            lines.append(f"    {var_name} = {self._linear_text(const_val, terms_val, mode)}")
 
-        # Điều kiện tham số ở cuối (không in w vars)
-        if upper is not None:
-            lines.append(f"  Điều kiện tham số: {fmt_num(lower, mode)} ≤ {param_name} ≤ {fmt_num(upper, mode)}")
-        else:
-            lines.append(f"  Điều kiện tham số: {param_name} ≥ {fmt_num(lower, mode)}")
+        lines.append("  Điều kiện tham số (từ x_i ≥ 0 / x_i ≤ 0):")
+        for orig_idx, mapping in enumerate(engine.variable_mapping):
+            sign = engine.problem.var_signs[orig_idx]
+            if sign == "tự do":
+                continue  # biến tự do không ràng buộc dấu
+
+            var_name = f"x{orig_idx+1}"
+            # Tính biểu diễn x_orig_idx theo tham số
+            const_v = Fraction(0)
+            terms_v = []
+            for si, mc in mapping:
+                sc, st = std_expr(si)
+                const_v += mc * sc
+                for c, n in st:
+                    terms_v.append((mc * c, n))
+
+            expr_str = self._linear_text(const_v, terms_v, mode)
+            if sign == "≥0":
+                lines.append(f"    {var_name} = {expr_str} ≥ 0")
+            elif sign == "≤0":
+                lines.append(f"    {var_name} = {expr_str} ≤ 0")
+
+        # Điều kiện bản thân các tham số ≥ 0
+        lines.append("  Điều kiện bản thân tham số:")
+        for fn in free_names:
+            lines.append(f"    {fn} ≥ 0")
+
         return lines
 
     def _render_trace(self, title, trace):
@@ -2117,7 +2502,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 "───────────────────────────────────\n","h2")
             self.output.insert(tk.END,
                 "  Tồn tại b_i < 0 → tìm từ vựng xuất phát chấp nhận được\n"
-                "                    bằng bài toán bổ trợ.\n\n","note")
+                                 "                    bằng bài toán bổ trợ.\n\n","note")
             for line in self._format_aux_phase1_problem(engine):
                 self.output.insert(tk.END, line + "\n", "note")
             self.output.insert(tk.END, "\n")
@@ -2143,16 +2528,16 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 snap1 = report.dantzig.final_snapshot
                 if snap1:
                     self.output.insert(tk.END,
-                        "\n───────────────────────────────────\n"
+"\n───────────────────────────────────\n"
                         " Chuyển sang Pha 2\n"
-                        "───────────────────────────────────\n","h2")
+"───────────────────────────────────\n","h2")
                     for line in self._format_phase2_transition_aux(engine, snap1):
                         self.output.insert(tk.END, line + "\n", "note")
                     self.output.insert(tk.END, "\n")
                 self.output.insert(tk.END,
-                    "\n───────────────────────────────────\n"
+"\n───────────────────────────────────\n"
                     " Pha 2: Giải bài toán gốc\n"
-                    "───────────────────────────────────\n","h2")
+"───────────────────────────────────\n","h2")
                 # Nếu Pha 2 Dantzig cycle và đã fallback sang Bland: phase1_bland chứa trace Dantzig (cycle)
                 phase2_dantzig_cycle = (
                     report.phase1_bland is not None
@@ -2163,9 +2548,9 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                     self._render_trace("Pha 2 - Dantzig", report.phase1_bland)
                     self.output.insert(tk.END, "\n  ⚠️ Dantzig xoay vòng ở Pha 2 → chuyển sang Bland.\n", "warn")
                     self.output.insert(tk.END,
-                        "\n───────────────────────────────────\n"
+"\n───────────────────────────────────\n"
                         " Pha 2 (Bland): Giải bài toán gốc\n"
-                        "───────────────────────────────────\n","h2")
+"───────────────────────────────────\n","h2")
                 self._render_trace("Pha 2", report.phase2_trace)
                 if report.phase2_trace.status == "cycle":
                     self.output.insert(tk.END, "\nKẾT LUẬN\n", "h2")
@@ -2176,20 +2561,19 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             else:
                 inf_msg = "z_max = −∞" if is_max else "z_min = +∞"
                 self.output.insert(tk.END,f"\nKẾT LUẬN\n  Vô nghiệm → {inf_msg}.\n","warn"); return
-
         else:
             # ── Không cần Pha 1 ─────────────────────────────────────────
             self.output.insert(tk.END,
                 "\n───────────────────────────────────\n"
                 " Không cần Pha 1\n"
-                "───────────────────────────────────\n","h2")
+"───────────────────────────────────\n","h2")
             self.output.insert(tk.END,
                 "  Tất cả b_i ≥ 0 → từ vựng xuất phát là chấp nhận được,\n"
                 "                   không cần thực hiện Pha 1.\n\n")
             self.output.insert(tk.END,
                 "───────────────────────────────────\n"
                 " Giải bài toán\n"
-                "───────────────────────────────────\n","h2")
+"───────────────────────────────────\n","h2")
             self._render_trace("Giải bài toán",report.dantzig)
             if report.dantzig.status == "cycle":
                 self.output.insert(tk.END, "\nKẾT LUẬN\n", "h2")
@@ -2225,9 +2609,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             else:
                 self.output.insert(tk.END,
                     f"  Bài toán có vô số nghiệm tối ưu.\n"
-                    f"  Giá trị tối ưu là: z* = {fmt_num(obj_orig,mode)}\n","note")
-            for line in self._format_multiple_optimal_conclusion(engine,final,report):
-                self.output.insert(tk.END,line+"\n","note")
+                    f"  Giá trị tối ưu là: z* = max Z = −(min Z') = −({fmt_num(obj_std,mode)}) = {fmt_num(obj_orig,mode)}\n")
         else:
             self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
             method_lbl = "Dantzig" if report.used_method == "dantzig" else "Bland"
@@ -2402,6 +2784,8 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 report_b = future_b.result()
 
             self.last_problem = prob
+            self.last_report_d = report_d
+            self.last_report_b = report_b
 
             if has_negative:
                 priority = "haipha"
@@ -2464,7 +2848,8 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
         except Exception as exc:
             self.last_report = None
-            if self.viz_btn: self.viz_btn.config(state=tk.DISABLED)
+            self.last_report_d = None
+            self.last_report_b = None
             self._set_solution_available(False)
             messagebox.showerror("Lỗi nhập liệu / giải thuật", str(exc))
             self.status_var.set("Có lỗi xảy ra. Kiểm tra lại dữ liệu nhập.")
