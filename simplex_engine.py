@@ -185,51 +185,21 @@ class SimplexEngine:
             if sense != "≤":
                 raise ValueError(f"Sense không hợp lệ sau chuẩn hóa: {sense}")
 
-            if b >= 0:
-                # Trường hợp bình thường: slack w_k là biến cơ sở
-                row = {j: -a for j, a in enumerate(coeffs) if a != 0}
-                sidx = len(self.all_names)
-                self.all_names.append(f"w{next_slack}")
-                next_slack += 1
-                basis.append(sidx)
-                rows.append(row)
-                rhs_list.append(b)
-            else:
-                # rhs < 0: nhân hàng với -1
-                # Ràng buộc gốc: Σ a_j·x_j ≤ b  →  Σ(−a_j)·x_j ≥ −b  (−b > 0)
-                # Thêm surplus s_k (≥0) và artificial a_k (≥0):
-                #   Σ(−a_j)·x_j − s_k + a_k = −b
-                #   a_k = (−b) + Σ a_j·x_j + s_k
-                # Dict convention (a_k = rhs + Σ row_j·x_j):
-                #   row[j] = +a_j,  row[s_idx] = +1,  rhs = −b > 0
-
-                # Surplus s_k
-                s_idx = len(self.all_names)
-                self.all_names.append(f"w{next_slack}")
-                next_slack += 1
-
-                # Artificial a_k
-                art_idx = len(self.all_names)
-                self.all_names.append(f"a{next_art}")
-                next_art += 1
-                self.artificial_vars.append(art_idx)
-
-                row: Dict[int, Fraction] = {}
-                for j, a in enumerate(coeffs):
-                    if a != 0:
-                        row[j] = a   # +a_j (flipped)
-                row[s_idx] = Fraction(1)   # +1 for surplus
-
-                basis.append(art_idx)
-                rows.append(row)
-                rhs_list.append(-b)   # −b > 0
+            # Tất cả ràng buộc (kể cả rhs < 0) đều thêm slack w_k tạm thời.
+            # Nếu có rhs < 0, block has_negative_rhs bên dưới sẽ kích hoạt pha 1 bổ trợ x0.
+            row = {j: -a for j, a in enumerate(coeffs) if a != 0}
+            sidx = len(self.all_names)
+            self.all_names.append(f"w{next_slack}")
+            next_slack += 1
+            basis.append(sidx)
+            rows.append(row)
+            rhs_list.append(b)
 
         self.initial_basis = basis
         self.initial_rows = rows
         self.initial_rhs = rhs_list
-        # need_aux_phase1 = True khi có ít nhất một rhs_list[i] < 0 ban đầu (trước khi flip).
-        # Trong trường hợp này, ta dùng bài toán bổ trợ δ = x0 (Pha 1 bổ trợ).
-        # Nếu chỉ có ràng buộc đẳng thức (artificial_vars từ =), dùng Pha 1 chuẩn (min Σ a_k).
+        # need_aux_phase1 = True khi có ít nhất một std_rhs[i] < 0.
+        # Trong trường hợp này, dùng bài toán bổ trợ δ = x0 (Pha 1 bổ trợ).
         has_negative_rhs = any(b < 0 for b in self.std_rhs)
         if has_negative_rhs:
             # Chuyển lại về dạng gốc: các hàng rhs<0 dùng x0, không dùng artificial từ flip
@@ -667,8 +637,8 @@ class SimplexEngine:
         rows = [deepcopy(r) for r in snapshot.rows]
         rhs = snapshot.rhs[:]
 
-        # Tập biến cần loại: x0 (strip_vars) + artificial_vars từ ràng buộc =
-        strip_set = set(strip_vars or []) | set(self.artificial_vars)
+        # Tập biến cần loại: x0 (strip_vars)
+        strip_set = set(strip_vars or [])
 
         # Nếu biến cần loại còn degenerate trong basis (rhs=0),
         # thực hiện degenerate pivot để đưa biến thực ra thay thế.
@@ -725,15 +695,6 @@ class SimplexEngine:
         const, obj = self._canonicalize(basis, rows, rhs, raw_obj, raw_const)
         return basis, rows, rhs, const, obj
 
-    def _phase1_start(self) -> Tuple[List[int], List[Dict[int, Fraction]], List[Fraction], Fraction, Dict[int, Fraction]]:
-        basis = self.initial_basis[:]
-        rows = [deepcopy(r) for r in self.initial_rows]
-        rhs = self.initial_rhs[:]
-        # Pha 1: min Σ a_k (tổng các biến độ nhiễu)
-        raw_obj = {a: Fraction(1) for a in self.artificial_vars}
-        const, obj = self._canonicalize(basis, rows, rhs, raw_obj, Fraction(0))
-        return basis, rows, rhs, const, obj
-
 
     def solve_full(self, preferred_method: str = "dantzig") -> SolveReport:
         notes = self.standardization_lines[:] + self.strict_notes[:]
@@ -775,44 +736,6 @@ class SimplexEngine:
             return self._assemble_report(
                 used, phase1, phase2, notes, phase1_infeasible=False,
                 phase1_bland=phase1_bland, phase2_trace=phase2
-            )
-
-        if self.artificial_vars:
-            basis, rows, rhs, obj_const, obj = self._phase1_start()
-            phase1 = self._solve_once(preferred_method, 1, basis, rows, rhs, obj_const, obj, "w", self.artificial_vars)
-            phase1_bland = None
-            if phase1.status == "cycle":
-                return self._assemble_report(
-                    preferred_method, phase1, None, notes, phase1_infeasible=False,
-                    phase1_bland=None, phase2_trace=None
-                )
-            used = preferred_method
-
-            if phase1.final_snapshot is None:
-                return self._assemble_report(
-                    used, phase1, None, notes, phase1_infeasible=True,
-                    phase1_bland=phase1_bland, phase2_trace=None
-                )
-
-            if phase1.final_snapshot.obj_const != 0:
-                phase1.infeasible = True
-                phase1.status = "infeasible"
-                return self._assemble_report(
-                    used, phase1, None, notes, phase1_infeasible=True,
-                    phase1_bland=phase1_bland, phase2_trace=None
-                )
-
-            basis2, rows2, rhs2, obj_const2, obj2 = self._phase2_start(phase1.final_snapshot)
-            phase2 = self._solve_once(used, 2, basis2, rows2, rhs2, obj_const2, obj2, obj_label, self.artificial_vars)
-            if phase2.status == "cycle" and used == "dantzig":
-                phase2_bland = self._solve_once("bland", 2, basis2, rows2, rhs2, obj_const2, obj2, obj_label, self.artificial_vars)
-                return self._assemble_report(
-                    "bland", phase1, phase2_bland, notes, phase1_infeasible=False,
-                    phase1_bland=phase1_bland, phase2_trace=phase2_bland, phase2_dantzig=phase2
-                )
-            return self._assemble_report(
-                used, phase1, phase2, notes, phase1_infeasible=False,
-                phase1_bland=phase1_bland, phase2_trace=phase2, phase2_dantzig=None
             )
 
         basis, rows, rhs, obj_const, obj = self._phase2_start(self._state(self.initial_basis, self.initial_rows, self.initial_rhs, Fraction(0), {}, 2, "z", self.artificial_vars))
