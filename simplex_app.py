@@ -17,6 +17,7 @@ from html_exporter import export_report_html
 from utils import (VAR_SIGNS, SENSES, clean_number_text, fmt_num,
                    fr, parse_cell, row_expr, sense_to_standard, term_str)
 from viz3d import Viz3DMixin
+from animator import SimplexAnimator
 
 
 class SimplexApp(Viz3DMixin, tk.Tk):
@@ -50,6 +51,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         self.html_btn: Optional[tk.Button] = None
         self.viz_btn: Optional[tk.Button] = None
         self.viz3d_btn: Optional[tk.Button] = None
+        self.animate_btn: Optional[tk.Button] = None
 
         # Khởi động giao diện
         self._setup_style()
@@ -213,18 +215,14 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                     width=5, command=self._build_inputs).pack(side="left")
 
 
-        # Hàng nút xuất file + HTML + trực quan hóa
-        action_row = ttk.Frame(config)
-        action_row.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(8, 0)) 
-        action_row.columnconfigure(0, weight=1)
-        action_row.columnconfigure(1, weight=1)
-        action_row.columnconfigure(2, weight=1)
-        action_row.columnconfigure(3, weight=1) 
+        # ── Hàng trên: Kết quả (4 nút) ───────────────────────────────────
+        top_row = ttk.Frame(config)
+        top_row.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(8, 2))
+        for c in range(4):
+            top_row.columnconfigure(c, weight=1)
 
-        # Nút "Xuất file .txt": ban đầu bị vô hiệu hóa (xám); chỉ sáng lên sau khi giải xong
         self.export_btn = tk.Button(
-            action_row,
-            text="📄  Xuất .txt",
+            top_row, text="📄  Xuất .txt",
             font=("Segoe UI", 9, "bold"),
             bg="#CBD5E1", fg="white",
             activebackground="#94A3B8", activeforeground="white",
@@ -233,15 +231,11 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             command=self.export_solution_txt,
         )
         self.export_btn.grid(row=0, column=0, sticky="ew", padx=(0, 3))
-        self.export_btn.bind("<Enter>",
-                             lambda e: self._on_button_enter(e, "#2563EB"))
-        self.export_btn.bind("<Leave>",
-                             lambda e: self._on_button_leave(e, "#CBD5E1"))
+        self.export_btn.bind("<Enter>", lambda e: self._on_button_enter(e, "#2563EB"))
+        self.export_btn.bind("<Leave>", lambda e: self._on_button_leave(e, "#CBD5E1"))
 
-        # Nút "Xem HTML (KaTeX)": xuất lời giải đẹp ra trình duyệt
         self.html_btn = tk.Button(
-            action_row,
-            text="🌐  Xem HTML",
+            top_row, text="🌐  Xem HTML",
             font=("Segoe UI", 9, "bold"),
             bg="#CBD5E1", fg="white",
             activebackground="#94A3B8", activeforeground="white",
@@ -250,40 +244,93 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             command=self.open_solution_html,
         )
         self.html_btn.grid(row=0, column=1, sticky="ew", padx=(0, 3))
-        self.html_btn.bind("<Enter>",
-                           lambda e: self._on_button_enter(e, "#0F766E"))
-        self.html_btn.bind("<Leave>",
-                           lambda e: self._on_button_leave(e, "#CBD5E1"))
+        self.html_btn.bind("<Enter>", lambda e: self._on_button_enter(e, "#0F766E"))
+        self.html_btn.bind("<Leave>", lambda e: self._on_button_leave(e, "#CBD5E1"))
 
-        # Nút "Trực quan hóa (2D/3D)": luôn hiển thị, nhưng đổi nhãn/màu theo số biến
-        self.viz_btn = tk.Button(
-            action_row,
-            text="📊  Trực quan",
+        self.animate_btn = tk.Button(
+            top_row, text="▶  Hiện từ vựng",
             font=("Segoe UI", 9, "bold"),
-            bg="#6EBF8B", fg="white",
-            activebackground="#4DAA72", activeforeground="white",
+            bg="#CBD5E1", fg="white",
+            activebackground="#94A3B8", activeforeground="white",
             relief="flat", bd=0, padx=6, pady=7,
-            cursor="hand2",
+            cursor="arrow", state=tk.DISABLED,
+            command=self._open_animator,
+        )
+        self.animate_btn.grid(row=0, column=2, sticky="ew", padx=(0, 3))
+        self.animate_btn.bind("<Enter>", lambda e: self._on_button_enter(e, "#7C3AED"))
+        self.animate_btn.bind("<Leave>", lambda e: self._on_button_leave(e, "#CBD5E1"))
+
+        # Nút trực quan hóa – màu/nhãn cập nhật động qua _update_viz_btn_state()
+        self.viz_btn = tk.Button(
+            top_row, text="🔒  Trực quan hóa",
+            font=("Segoe UI", 9, "bold"),
+            bg="#CBD5E1", fg="white",
+            activebackground="#94A3B8", activeforeground="white",
+            relief="flat", bd=0, padx=6, pady=7,
+            cursor="arrow", state=tk.DISABLED,
             command=self._viz_dispatch,
         )
-        self.viz_btn.grid(row=0, column=2, sticky="ew", padx=(0, 3))
-        self.viz_btn.bind("<Enter>",
-                          lambda e: self._on_button_enter(e, None))
-        self.viz_btn.bind("<Leave>",
-                          lambda e: self._on_button_leave(e, None))
+        self.viz_btn.grid(row=0, column=3, sticky="ew")
+        self.viz_btn.bind("<Enter>", lambda e: self._on_button_enter(e, None))
+        self.viz_btn.bind("<Leave>", lambda e: self._on_button_leave(e, None))
+
+        # ── Hàng dưới: Quản lý dữ liệu (4 nút) ──────────────────────────
+        bot_row = ttk.Frame(config)
+        bot_row.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(2, 0))
+        for c in range(4):
+            bot_row.columnconfigure(c, weight=1)
+
+        self.clear_all_btn = tk.Button(
+            bot_row, text="🗑  Xóa toàn bộ",
+            font=("Segoe UI", 9, "bold"),
+            bg="#EF4444", fg="white",
+            activebackground="#DC2626", activeforeground="white",
+            relief="flat", bd=0, padx=6, pady=6,
+            cursor="hand2",
+            command=self._clear_all,
+        )
+        self.clear_all_btn.grid(row=0, column=0, sticky="ew", padx=(0, 3))
+        self.clear_all_btn.bind("<Enter>", lambda e: self._on_button_enter(e, "#DC2626"))
+        self.clear_all_btn.bind("<Leave>", lambda e: self._on_button_leave(e, "#EF4444"))
+
         self.reset_btn = tk.Button(
-            action_row,
-            text="Xóa & nhập lại",
+            bot_row, text="↺  Xóa & nhập lại",
             font=("Segoe UI", 9, "bold"),
             bg="#94A3B8", fg="white",
             activebackground="#64748B", activeforeground="white",
-            relief="flat", bd=0, padx=6, pady=7,
+            relief="flat", bd=0, padx=6, pady=6,
             cursor="hand2",
             command=self._build_inputs,
         )
-        self.reset_btn.grid(row=0, column=3, sticky="ew")
+        self.reset_btn.grid(row=0, column=1, sticky="ew", padx=(0, 3))
         self.reset_btn.bind("<Enter>", lambda e: self._on_button_enter(e, "#64748B"))
         self.reset_btn.bind("<Leave>", lambda e: self._on_button_leave(e, "#94A3B8"))
+
+        self.import_csv_btn = tk.Button(
+            bot_row, text="📥  Nhập CSV",
+            font=("Segoe UI", 9, "bold"),
+            bg="#7C3AED", fg="white",
+            activebackground="#6D28D9", activeforeground="white",
+            relief="flat", bd=0, padx=6, pady=6,
+            cursor="hand2",
+            command=self.import_from_csv,
+        )
+        self.import_csv_btn.grid(row=0, column=2, sticky="ew", padx=(0, 3))
+        self.import_csv_btn.bind("<Enter>", lambda e: self._on_button_enter(e, "#6D28D9"))
+        self.import_csv_btn.bind("<Leave>", lambda e: self._on_button_leave(e, "#7C3AED"))
+
+        self.export_csv_btn = tk.Button(
+            bot_row, text="📤  Xuất CSV",
+            font=("Segoe UI", 9, "bold"),
+            bg="#0891B2", fg="white",
+            activebackground="#0E7490", activeforeground="white",
+            relief="flat", bd=0, padx=6, pady=6,
+            cursor="hand2",
+            command=self.export_to_csv,
+        )
+        self.export_csv_btn.grid(row=0, column=3, sticky="ew")
+        self.export_csv_btn.bind("<Enter>", lambda e: self._on_button_enter(e, "#0E7490"))
+        self.export_csv_btn.bind("<Leave>", lambda e: self._on_button_leave(e, "#0891B2"))
 
         self.viz3d_btn = None
 
@@ -757,6 +804,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         for btn, hover_color, base_color in [
             (self.export_btn, "#2563EB", "#3B82F6"),
             (self.html_btn,   "#0F766E", "#0D9488"),
+            (self.animate_btn, "#6D28D9", "#7C3AED"),
         ]:
             if btn is None:
                 continue
@@ -822,6 +870,62 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             self.viz_btn._base_bg = s["bg"]
             self.viz_btn._hover_bg = s["hover"]
 
+    def _clear_all(self):
+        """Xóa toàn bộ: solution, output, comparison_frame, và reset inputs."""
+        self._build_inputs()                          # xóa form nhập
+        self.output.config(state=tk.NORMAL)
+        self.output.delete("1.0", tk.END)
+        self.output.config(state=tk.DISABLED)
+        self.comparison_frame.grid_remove()           # ẩn "Tham chiếu Phương pháp giải"
+        self.lbl_theory.config(text="")
+        if hasattr(self, "lbl_optimal"):
+            self.lbl_optimal.config(text="")
+        self.last_report = None
+        self.last_problem = None
+        self.status_var.set("Đã xóa toàn bộ.")
+
+    def _open_animator(self):
+        """Mở cửa sổ hiện từ vựng các bước Simplex."""
+        if self.last_report is None:
+            return
+        from animator import SimplexAnimator
+        report = self.last_report
+        sel  = self.selected_method_view.get()   # "dantzig" | "bland" | "haipha"
+        mode = self.data_mode.get()
+
+        engine = report.engine
+        is_two_phase = bool(engine.need_aux_phase1 or engine.artificial_vars)
+
+        # Bài toán hai pha thật sự: có pha 1 bổ trợ (x0 hoặc biến nhân tạo)
+        if is_two_phase:
+            phase2 = getattr(report, "phase2_trace", None)
+            phase1_trace = getattr(report, "dantzig", None)
+            traces = []
+            if phase1_trace is not None:
+                traces.append(("Pha 1", phase1_trace))
+            if phase2 is not None:
+                traces.append(("Pha 2", phase2))
+            if not traces:
+                messagebox.showinfo("Hiện từ vựng", "Không có dữ liệu trace để hiện từ vựng.")
+                return
+            SimplexAnimator(self, traces=traces, data_mode=mode,
+                            title="Hiện từ vựng – Hai Pha")
+            return
+
+        # Bài toán một pha: không hiển thị nhãn pha
+        # phase2_trace ở đây chỉ là trace giải thẳng (engine gán vào phase2_trace
+        # ngay cả khi không có pha 1 thật sự)
+        phase2 = getattr(report, "phase2_trace", None)
+        if sel == "bland":
+            trace = getattr(report, "bland", None) or phase2 or getattr(report, "dantzig", None)
+        else:
+            trace = phase2 or getattr(report, "dantzig", None)
+
+        if trace is None:
+            messagebox.showinfo("Hiện từ vựng", "Không có dữ liệu trace để hiện từ vựng.")
+            return
+        SimplexAnimator(self, traces=[("", trace)], data_mode=mode)
+
     def _viz_dispatch(self) -> None:
         # Điều phối yêu cầu trực quan hóa theo số biến:
         #   2 biến → vẽ đồ thị 2D miền chấp nhận + đường đồng mức
@@ -869,6 +973,136 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             original_color = getattr(btn, "_base_bg", btn.cget("bg"))
         btn.config(bg=original_color)
 
+
+    # ------------------------------------------------------------------
+    # Import / Export CSV
+    # ------------------------------------------------------------------
+    # Định dạng CSV:
+    #   Dòng 1:  sense,<max|min>
+    #   Dòng 2:  obj,<c1>,<c2>,...,<cn>
+    #   Dòng 3:  signs,<≥0|≤0|tự do>,...
+    #   Dòng 4+: con,<a1>,...,<an>,<≤|≥|=>,<rhs>
+    # Ví dụ:
+    #   sense,max
+    #   obj,2,4
+    #   signs,≥0,≥0
+    #   con,1,2,≤,6
+    #   con,1,0,≤,4
+    #   con,0,1,≤,3
+
+    def import_from_csv(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Chọn file CSV bài toán",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            import csv as _csv
+            with open(path, newline="", encoding="utf-8-sig") as f:
+                reader = _csv.reader(f)
+                rows = [r for r in reader if r and not r[0].strip().startswith("#")]
+
+            sense = "min"
+            obj: List[str] = []
+            signs: List[str] = []
+            constraints: List[tuple] = []
+
+            for row in rows:
+                tag = row[0].strip().lower()
+                if tag == "sense":
+                    sense = row[1].strip().lower()
+                elif tag == "obj":
+                    obj = [v.strip() for v in row[1:] if v.strip() != ""]
+                elif tag == "signs":
+                    signs = [v.strip() for v in row[1:] if v.strip() != ""]
+                elif tag == "con":
+                    # format: con, a1, ..., an, sense_sign, rhs
+                    vals = [v.strip() for v in row[1:] if v.strip() != ""]
+                    # sense nằm ở vị trí áp cuối, rhs là phần tử cuối
+                    # Tìm sense_sign: ≤, >=, =, <=, >=
+                    sense_idx = None
+                    for k, v in enumerate(vals):
+                        if v in ("≤", "≥", "=", "<=", ">=", "le", "ge", "eq"):
+                            sense_idx = k
+                            break
+                    if sense_idx is None:
+                        raise ValueError(f"Không tìm thấy dấu ràng buộc trong: {row}")
+                    coeffs = vals[:sense_idx]
+                    s = vals[sense_idx]
+                    rhs = vals[sense_idx + 1]
+                    # chuẩn hóa dấu
+                    s = {"<=": "≤", ">=": "≥", "le": "≤", "ge": "≥", "eq": "="}.get(s, s)
+                    constraints.append((coeffs, s, rhs))
+
+            if not obj:
+                raise ValueError("Không tìm thấy dòng 'obj' trong CSV.")
+            n_vars = len(obj)
+            n_cons = len(constraints)
+            if n_vars < 1 or n_vars > 5:
+                raise ValueError(f"Số biến phải từ 1 đến 5, nhưng CSV có {n_vars}.")
+            if n_cons < 1 or n_cons > 10:
+                raise ValueError(f"Số ràng buộc phải từ 1 đến 10, nhưng CSV có {n_cons}.")
+            if not signs:
+                signs = ["≥0"] * n_vars
+            if len(signs) < n_vars:
+                signs += ["≥0"] * (n_vars - len(signs))
+            # Kiểm tra mỗi ràng buộc đủ n_vars hệ số
+            for i, (coeffs, s, rhs) in enumerate(constraints):
+                if len(coeffs) < n_vars:
+                    coeffs = coeffs + ["0"] * (n_vars - len(coeffs))
+                    constraints[i] = (coeffs, s, rhs)
+
+            self._apply_demo(
+                n_vars=n_vars,
+                n_cons=n_cons,
+                sense=sense,
+                obj=obj,
+                signs=signs,
+                constraints=constraints,
+            )
+            self.status_var.set(f"✅ Đã nhập từ {path.split('/')[-1]}  ({n_vars} biến, {n_cons} ràng buộc)")
+        except Exception as ex:
+            messagebox.showerror("Lỗi nhập CSV", str(ex))
+
+    def export_to_csv(self) -> None:
+        # Xuất bài toán hiện tại (hoặc template trống) ra CSV.
+        try:
+            n = int(self.n_vars.get())
+            m = int(self.n_constraints.get())
+            sense = self.objective_sense.get() or "min"
+            obj = [e.get().strip() or "0" for e in self.obj_entries[:n]]
+            signs = [cb.get() or "≥0" for cb in self.var_signs[:n]]
+            constraints = []
+            for i in range(m):
+                coeffs = [e.get().strip() or "0" for e in self.constraint_entries[i][:n]]
+                s = self.constraint_senses[i].get() or "≤"
+                rhs = self.constraint_rhs[i].get().strip() or "0"
+                constraints.append((coeffs, s, rhs))
+        except Exception:
+            n, m, sense, obj, signs, constraints = 2, 2, "min", ["1","1"], ["≥0","≥0"], [(["1","0"],"≤","4"),(["0","1"],"≤","6")]
+
+        path = filedialog.asksaveasfilename(
+            title="Lưu CSV bài toán",
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            initialfile="bai_toan.csv",
+        )
+        if not path:
+            return
+        try:
+            import csv as _csv
+            with open(path, "w", newline="", encoding="utf-8-sig") as f:
+                w = _csv.writer(f)
+                w.writerow(["# Định dạng: sense | obj | signs | con (hệ số...,dấu,rhs)"])
+                w.writerow(["sense", sense])
+                w.writerow(["obj"] + obj)
+                w.writerow(["signs"] + signs)
+                for coeffs, s, rhs in constraints:
+                    w.writerow(["con"] + coeffs + [s, rhs])
+            self.status_var.set(f"✅ Đã xuất mẫu CSV → {path.split('/')[-1]}")
+        except Exception as ex:
+            messagebox.showerror("Lỗi xuất CSV", str(ex))
 
     def export_solution_txt(self) -> None:
         # Xuất nội dung vùng lời giải ra file .txt.
