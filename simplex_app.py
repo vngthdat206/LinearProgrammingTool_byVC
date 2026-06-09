@@ -1688,34 +1688,57 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
     def _format_multiple_optimal_family(self, engine, snapshot, report):
         # Tạo chuỗi mô tả họ vô số nghiệm tối ưu.
-        mode=self.data_mode.get(); free_vars=report.multiple_optimal_vars or []
-        if not free_vars: return []
-        param_name=snapshot.all_names[free_vars[0]]
-        lines=[f"  Do hệ số trước {param_name} bằng 0. Bài toán có vô số nghiệm.\n  Cho các biến không cơ sở (trừ {param_name}) bằng 0:","",f"    z = {fmt_num(snapshot.obj_const,mode)}"]
-        def row_expr(ri):
-            terms=[(snapshot.rows[ri].get(fv,Fraction(0)),snapshot.all_names[fv]) for fv in free_vars if snapshot.rows[ri].get(fv,Fraction(0))!=0]
-            return self._linear_text(snapshot.rhs[ri],terms,mode)
-        for ri,b in enumerate(snapshot.basis): lines.append(f"    {snapshot.all_names[b]} = {row_expr(ri)}")
-        # Suy ra điều kiện của tham số từ ràng buộc w_k ≥ 0 (biến bù)
+        mode = self.data_mode.get()
+        free_vars = report.multiple_optimal_vars or []
+        if not free_vars:
+            return []
+        param_idx = free_vars[0]
+        param_name = snapshot.all_names[param_idx]
+        lines = [
+            f"  Do hệ số trước {param_name} bằng 0. Bài toán có vô số nghiệm.",
+            f"  Cho các biến không cơ sở (trừ {param_name}) bằng 0:",
+            "",
+            f"    z = {fmt_num(snapshot.obj_const, mode)}"
+        ]
+
+        # Chỉ hiển thị các biến gốc x_i trong cơ sở (không hiển thị w, a, x0)
+        n_orig = len(engine.problem.var_signs)
+        aux_idx = getattr(engine, "phase1_aux_var_index", None)
+        art_set = set(engine.artificial_vars)
+
+        def row_expr_local(ri):
+            terms = [(snapshot.rows[ri].get(fv, Fraction(0)), snapshot.all_names[fv])
+                     for fv in free_vars if snapshot.rows[ri].get(fv, Fraction(0)) != 0]
+            return self._linear_text(snapshot.rhs[ri], terms, mode)
+
+        for ri, b in enumerate(snapshot.basis):
+            # Bỏ qua biến a (artificial) và x0
+            if b in art_set:
+                continue
+            if aux_idx is not None and b == aux_idx:
+                continue
+            b_name = snapshot.all_names[b]
+            lines.append(f"    {b_name} = {row_expr_local(ri)}")
+
+        # Suy ra điều kiện của tham số từ ràng buộc biến cơ sở ≥ 0
         lines.append("")
         lines.append(f"  Để nghiệm khả thi (các biến cơ sở ≥ 0), từ các ràng buộc trên suy ra:")
         param_conditions = []
         for ri, b in enumerate(snapshot.basis):
-            coef_param = snapshot.rows[ri].get(free_vars[0], Fraction(0))
+            coef_param = snapshot.rows[ri].get(param_idx, Fraction(0))
             rhs_val = snapshot.rhs[ri]
             b_name = snapshot.all_names[b]
             if coef_param == 0:
-                # Không phụ thuộc tham số: nếu rhs < 0 thì vô nghiệm (không xảy ra ở optimal)
                 continue
-            # b_name = rhs_val + coef_param * param ≥ 0
-            # → param ≥ -rhs_val / coef_param  (nếu coef_param > 0)
-            # → param ≤ -rhs_val / coef_param  (nếu coef_param < 0)
+            # Bỏ qua x0
+            if aux_idx is not None and b == aux_idx:
+                continue
             bound = -rhs_val / coef_param
             if coef_param > 0:
                 param_conditions.append(("≥", bound, b_name, rhs_val, coef_param))
             else:
                 param_conditions.append(("≤", bound, b_name, rhs_val, coef_param))
-        # Cũng thêm điều kiện param ≥ 0 (bản thân là biến không cơ sở ≥ 0)
+        # Điều kiện param ≥ 0 (bản thân là biến không cơ sở ≥ 0)
         param_conditions.append(("≥", Fraction(0), param_name + " ≥ 0", Fraction(0), Fraction(0)))
         for cond_type, bound_val, src_name, rhs_v, coef_v in param_conditions:
             if coef_v == 0:
@@ -1734,15 +1757,22 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return lines
 
     def _format_multiple_optimal_conclusion(self, engine, snapshot, report):
-        mode=self.data_mode.get(); free_vars=report.multiple_optimal_vars or []
-        if not free_vars: return []
-        lines=["  Nghiệm tối ưu:","  {"]
-        bp={b:i for i,b in enumerate(snapshot.basis)}
+        mode = self.data_mode.get()
+        free_vars = report.multiple_optimal_vars or []
+        if not free_vars:
+            return []
+        param_idx = free_vars[0]
+        param_name = snapshot.all_names[param_idx]
+        lines = ["  Nghiệm tổng quát:"]
+        bp = {b: i for i, b in enumerate(snapshot.basis)}
 
-        # Tính điều kiện tham số (dùng lại logic từ _format_multiple_optimal_family)
+        # Tính điều kiện tham số (chỉ từ biến cơ sở, bỏ qua x0)
+        aux_idx = getattr(engine, "phase1_aux_var_index", None)
         param_conditions = []
         for ri, b in enumerate(snapshot.basis):
-            coef_param = snapshot.rows[ri].get(free_vars[0], Fraction(0))
+            if aux_idx is not None and b == aux_idx:
+                continue
+            coef_param = snapshot.rows[ri].get(param_idx, Fraction(0))
             rhs_val = snapshot.rhs[ri]
             if coef_param == 0:
                 continue
@@ -1759,19 +1789,22 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
         def std_expr(idx):
             if idx in bp:
-                r=bp[idx]; terms=[(snapshot.rows[r].get(fv,Fraction(0)),snapshot.all_names[fv]) for fv in free_vars if snapshot.rows[r].get(fv,Fraction(0))!=0]
-                return snapshot.rhs[r],terms
-            if idx in free_vars: return Fraction(0),[(Fraction(1),snapshot.all_names[idx])]
-            return Fraction(0),[]
+                r = bp[idx]
+                terms = [(snapshot.rows[r].get(fv, Fraction(0)), snapshot.all_names[fv])
+                         for fv in free_vars if snapshot.rows[r].get(fv, Fraction(0)) != 0]
+                return snapshot.rhs[r], terms
+            if idx in free_vars:
+                return Fraction(0), [(Fraction(1), snapshot.all_names[idx])]
+            return Fraction(0), []
 
-        param_name = snapshot.all_names[free_vars[0]]
-        for orig_idx,mapping in enumerate(engine.variable_mapping):
-            if len(mapping)==1 and mapping[0][0] in free_vars and mapping[0][1]==Fraction(1):
+        # In các biến gốc x_i (chỉ x, không w)
+        for orig_idx, mapping in enumerate(engine.variable_mapping):
+            if len(mapping) == 1 and mapping[0][0] == param_idx and mapping[0][1] == Fraction(1):
                 # Đây chính là tham số tự do → in điều kiện đã tính
                 if upper is not None:
-                    lines.append(f"    x{orig_idx+1}: {fmt_num(lower,mode)} ≤ x{orig_idx+1} ≤ {fmt_num(upper,mode)}")
+                    lines.append(f"    x{orig_idx+1} = x{orig_idx+1}  (tham số tự do)")
                 else:
-                    lines.append(f"    x{orig_idx+1} ≥ {fmt_num(lower,mode)}")
+                    lines.append(f"    x{orig_idx+1} = x{orig_idx+1}  (tham số tự do)")
                 continue
             # Biến tự do: mapping = [(j1, +1), (j2, -1)] → x = a - b
             if len(mapping) == 2 and mapping[0][1] == Fraction(1) and mapping[1][1] == Fraction(-1):
@@ -1789,19 +1822,28 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                     terms_diff = list(t1)
                     for coef, nm in t2:
                         terms_diff.append((-coef, nm))
-                    merged: dict = {}
+                    merged: Dict[str, Fraction] = {}
                     for coef, nm in terms_diff:
                         merged[nm] = merged.get(nm, Fraction(0)) + coef
                     merged_terms = [(v, k) for k, v in merged.items() if v != 0]
                     x_expr = self._linear_text(const_diff, merged_terms, mode)
                     lines.append(f"    x{orig_idx+1} = {a_name} - {b_name} = {a_expr} - ({b_expr}) = {x_expr}")
                     continue
-            const=Fraction(0); terms=[]
-            for si,mc in mapping:
-                sc,st=std_expr(si); const+=mc*sc
-                for coef,name in st: terms.append((mc*coef,name))
-            lines.append(f"    x{orig_idx+1} = {self._linear_text(const,terms,mode)}")
-        lines.append("  }"); return lines
+            const = Fraction(0)
+            terms = []
+            for si, mc in mapping:
+                sc, st = std_expr(si)
+                const += mc * sc
+                for coef, name in st:
+                    terms.append((mc * coef, name))
+            lines.append(f"    x{orig_idx+1} = {self._linear_text(const, terms, mode)}")
+
+        # Điều kiện tham số ở cuối (không in w vars)
+        if upper is not None:
+            lines.append(f"  Điều kiện tham số: {fmt_num(lower, mode)} ≤ {param_name} ≤ {fmt_num(upper, mode)}")
+        else:
+            lines.append(f"  Điều kiện tham số: {param_name} ≥ {fmt_num(lower, mode)}")
+        return lines
 
     def _render_trace(self, title, trace):
         # In toàn bộ quá trình lặp của một pha (Dantzig hoặc Bland):
@@ -1862,6 +1904,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 return
             self.output.insert(tk.END,"\n")
             if report.status=="infeasible":
+                self.output.insert(tk.END,"  Tất cả hệ số trên hàng mục tiêu đều ≥ 0 → từ vựng hiện tại là tối ưu.\n","note")
                 self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
                 inf_msg = "z_max = −∞" if is_max else "z_min = +∞"
                 self.output.insert(tk.END,
@@ -2049,22 +2092,21 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return bool(getattr(engine,"need_aux_phase1",False))
 
     def _format_aux_phase1_problem(self, engine):
-        """In bài toán bổ trợ x0 theo dạng ràng buộc chuẩn (như đề bài)."""
+        """In bài toán bổ trợ x0 theo dạng đề bài cụ thể."""
         mode = self.data_mode.get()
         lines = []
-        lines.append("  Bài toán bổ trợ: min x0")
+        lines.append("  Bài toán bổ trợ (δ = x0):")
         lines.append("")
-        lines.append("  {")
-        # Từ từ vựng ban đầu: w_k = b_k + Σ a_kj * x_j (trong đó a_kj là hệ số đã đổi dấu)
-        # Ràng buộc gốc (trước khi thêm x0): -Σ a_kj * x_j ≤ b_k  ↔  Ax ≤ b
-        # Sau khi thêm x0: -Σ a_kj * x_j - x0 ≤ b_k
+        lines.append("    min x0")
+        lines.append("    {")
+        # Từ initial_rows: w_k = rhs_k + Σ row_kj * x_j + x0
+        # Ràng buộc gốc: Σ(-row_kj)*x_j - x0 ≤ rhs_k
         for i, (b, row) in enumerate(zip(engine.initial_rhs, engine.initial_rows)):
-            # row[j] là hệ số trong "w_k = b_k + row[j]*x_j", tức hệ số -a_kj
-            # Ràng buộc chuẩn: Σ(-row[j])*x_j ≤ b  ↔  Σ orig_coef * x_j ≤ b
             lhs_parts = []
             for j in range(len(engine.std_names)):
                 a = -row.get(j, Fraction(0))  # hệ số gốc
-                if a == 0: continue
+                if a == 0:
+                    continue
                 nm = engine.all_names[j]
                 abs_a = abs(a)
                 coef_str = fmt_num(abs_a, mode) if abs_a != 1 else ""
@@ -2072,11 +2114,14 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 lhs_parts.append(f"{sign} {coef_str}{nm}")
             lhs_str = " ".join(lhs_parts).lstrip("+ ").strip() or "0"
             rhs_str = fmt_num(b, mode)
-            lines.append(f"    {lhs_str} - x0 ≤ {rhs_str}")
+            lines.append(f"      {lhs_str} - x0 ≤ {rhs_str}")
         # Ràng buộc không âm
-        var_list = ["x0"] + engine.std_names[:]
-        lines.append(f"    {', '.join(var_list)} ≥ 0")
-        lines.append("  }")
+        var_list = ["x0"] + list(engine.std_names)
+        lines.append(f"      {', '.join(var_list)} ≥ 0")
+        lines.append("    }")
+        lines.append("")
+        lines.append("  (Giải pha 1: đưa x0 vào cơ sở tại hàng có rhs âm nhất,")
+        lines.append("   sau đó tối thiểu hóa x0 bằng đơn hình chuẩn.)")
         return lines
 
     def _format_phase2_transition_aux(self, engine, snap1):
@@ -2085,65 +2130,38 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         lines = []
         aux_idx = getattr(engine, "phase1_aux_var_index", None)
 
-        # Tìm hàng x0 trong snap1 (nếu x0 degenerate trong cơ sở)
-        x0_row_idx = None
-        if aux_idx is not None:
-            for i, b in enumerate(snap1.basis):
-                if b == aux_idx:
-                    x0_row_idx = i
-                    break
+        lines.append("  Từ vựng hiện là tối ưu: cho x0 = 0, khi đó ta có:")
+        lines.append("")
 
-        lines.append("  Pha 1 kết thúc. Cho x0 = 0, loại x0 khỏi tất cả ràng buộc.")
-
-        # Nếu x0 degenerate trong cơ sở, nêu cần xoay x0 ra
-        if x0_row_idx is not None:
-            row_x0 = snap1.rows[x0_row_idx]
-            pivot_j = None
-            for j, a in sorted(row_x0.items()):
-                if j == aux_idx: continue
-                if j in snap1.basis: continue
-                if a != 0:
-                    pivot_j = j
-                    break
-            if pivot_j is not None:
-                pv_name = snap1.all_names[pivot_j]
-                x0_extras = []
-                for j, a in sorted(row_x0.items()):
-                    if j == aux_idx: continue
-                    if a == 0 or j >= len(snap1.all_names): continue
-                    nm = snap1.all_names[j]
-                    abs_c = abs(a)
-                    coef_str = fmt_num(abs_c, mode) if abs_c != 1 else ""
-                    sign = "+" if a > 0 else "-"
-                    x0_extras.append(f"{sign} {coef_str}{nm}")
-                x0_expr = fmt_num(snap1.rhs[x0_row_idx], mode) + (" " + " ".join(x0_extras) if x0_extras else "")
-                lines.append(f"  x0 = {x0_expr} → xoay {pv_name} vào thay x0 (degenerate pivot, θ = 0):")
-
-        lines.append("  Từ vựng cuối pha 1 suy ra:")
-
+        # In từng ràng buộc mới (sau khi loại x0)
         for i, (b_val, bas_idx) in enumerate(zip(snap1.rhs, snap1.basis)):
             row = snap1.rows[i]
             b_name = snap1.all_names[bas_idx]
             terms_str = fmt_num(b_val, mode)
             extras = []
             for j, a in sorted(row.items()):
-                if aux_idx is not None and j == aux_idx: continue
-                if a == 0 or j >= len(snap1.all_names): continue
+                if aux_idx is not None and j == aux_idx:
+                    continue
+                if a == 0 or j >= len(snap1.all_names):
+                    continue
                 nm = snap1.all_names[j]
                 abs_c = abs(a)
                 coef_str = fmt_num(abs_c, mode) if abs_c != 1 else ""
                 sign = "+" if a > 0 else "-"
                 extras.append(f"{sign} {coef_str}{nm}")
             expr = terms_str + (" " + " ".join(extras) if extras else "")
-            lines.append(f"    {b_name} = {expr}")
+            lines.append(f"    {b_name} = {expr.lstrip('+ ')}")
 
-        lines.append("  Hàm mục tiêu mới (thay vào từ vựng hiện tại):")
+        lines.append("")
+
+        # Hàm mục tiêu gốc (trước thay)
         is_max = engine.problem.objective_sense == "max"
         obj_sense_str = "min Z'" if is_max else "min Z"
 
         obj_parts = []
         for j, c in enumerate(engine.std_obj_coeffs):
-            if c == 0 or j >= len(engine.all_names): continue
+            if c == 0 or j >= len(engine.all_names):
+                continue
             nm = engine.all_names[j]
             abs_c = abs(c)
             coef_str = fmt_num(abs_c, mode) if abs_c != 1 else ""
@@ -2151,40 +2169,48 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             obj_parts.append(f"{sign} {coef_str}{nm}")
         obj_expr_raw = " ".join(obj_parts).lstrip("+ ").strip() or "0"
 
+        # Khai triển hàm mục tiêu: thay các biến cơ sở từ snap1 vào
         bp = {b: i for i, b in enumerate(snap1.basis)}
         expanded_const = Fraction(0)
-        expanded_terms = {}
+        expanded_terms: Dict[int, Fraction] = {}
         for j, c in enumerate(engine.std_obj_coeffs):
-            if c == 0: continue
+            if c == 0:
+                continue
             if j in bp:
                 ri = bp[j]
                 expanded_const += c * snap1.rhs[ri]
                 for k, a in snap1.rows[ri].items():
-                    if aux_idx is not None and k == aux_idx: continue
+                    if aux_idx is not None and k == aux_idx:
+                        continue
                     expanded_terms[k] = expanded_terms.get(k, Fraction(0)) + c * a
             else:
-                if aux_idx is not None and j == aux_idx: continue
+                if aux_idx is not None and j == aux_idx:
+                    continue
                 expanded_terms[j] = expanded_terms.get(j, Fraction(0)) + c
 
         exp_parts = []
         if expanded_const != 0:
             exp_parts.append(fmt_num(expanded_const, mode))
+        first_term = True
         for j in sorted(expanded_terms.keys()):
-            c = expanded_terms[j]
-            if c == 0 or j >= len(snap1.all_names): continue
-            if aux_idx is not None and j == aux_idx: continue
+            c = expanded_terms.get(j, Fraction(0))
+            if c == 0 or j >= len(snap1.all_names):
+                continue
+            if aux_idx is not None and j == aux_idx:
+                continue
             nm = snap1.all_names[j]
             abs_c = abs(c)
             coef_str = fmt_num(abs_c, mode) if abs_c != 1 else ""
-            sign = "+" if c > 0 else "-"
-            if not exp_parts:
+            if not exp_parts and first_term:
                 prefix = "" if c > 0 else "-"
                 exp_parts.append(f"{prefix}{coef_str}{nm}")
             else:
+                sign = "+" if c > 0 else "-"
                 exp_parts.append(f"{sign} {coef_str}{nm}")
+            first_term = False
         expanded_expr = " ".join(exp_parts).strip() or "0"
 
-        lines.append(f"    {obj_sense_str} = {obj_expr_raw} = {expanded_expr}")
+        lines.append(f"  Hàm mục tiêu mới: {obj_sense_str} = {obj_expr_raw} = {expanded_expr}")
         return lines
 
 
