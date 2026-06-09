@@ -31,7 +31,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         self.objective_sense = tk.StringVar(value="min") # kiểu bài toán mặc định là min
         self.n_vars = tk.IntVar(value=2)
         self.n_constraints = tk.IntVar(value=3)
-        self.data_mode = tk.StringVar(value="Phân số")
+        self.data_mode = "Phân số"
         self.method_preference = tk.StringVar(value="Dantzig Simplex")
         self.demo_preset_var = tk.StringVar(value="Ví dụ duy nhất nghiệm (Dantzig / Bland)")
         self.need_aux_phase1 = False # cờ cho biết có cần biến phụ để giải pha 1 hay không
@@ -201,11 +201,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         setup_row = ttk.Frame(config)
         setup_row.grid(row=0, column=0, columnspan=2, sticky="ew", pady=3)
         
-        ttk.Label(setup_row, text="Kiểu dữ liệu:").pack(side="left", padx=(0, 4))
-        ttk.Combobox(setup_row, textvariable=self.data_mode,
-                     values=["Phân số", "Số thập phân"],
-                     state="readonly", width=12).pack(side="left", padx=(0, 16))
-
         ttk.Label(setup_row, text="Số biến (1-5):").pack(side="left", padx=(0, 4))
         ttk.Spinbox(setup_row, from_=1, to=5, textvariable=self.n_vars,
                     width=5, command=self._build_inputs).pack(side="left", padx=(0, 16))
@@ -781,15 +776,15 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         # Thu thập toàn bộ dữ liệu từ giao diện nhập liệu và đóng gói thành ProblemData.
         n = int(self.n_vars.get())
         m = int(self.n_constraints.get())
-        obj_coeffs = [parse_cell(e.get(), self.data_mode.get())
+        obj_coeffs = [parse_cell(e.get(), self.data_mode)
                       for e in self.obj_entries[:n]]
         var_signs = [cb.get() or "≥0" for cb in self.var_signs[:n]]
         constraints = []
         for i in range(m):
-            coeffs = [parse_cell(e.get(), self.data_mode.get())
+            coeffs = [parse_cell(e.get(), self.data_mode)
                       for e in self.constraint_entries[i][:n]]
             sense = self.constraint_senses[i].get() or "≤"
-            rhs = parse_cell(self.constraint_rhs[i].get(), self.data_mode.get())
+            rhs = parse_cell(self.constraint_rhs[i].get(), self.data_mode)
             constraints.append({"coeffs": coeffs, "sense": sense, "rhs": rhs})
         return ProblemData(
             objective_sense=self.objective_sense.get(),
@@ -891,7 +886,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         from animator import SimplexAnimator
         report = self.last_report
         sel  = self.selected_method_view.get()   # "dantzig" | "bland" | "haipha"
-        mode = self.data_mode.get()
+        mode = self.data_mode
 
         engine = report.engine
         is_two_phase = bool(engine.need_aux_phase1 or engine.artificial_vars)
@@ -1133,7 +1128,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         try:
             self.status_var.set("Đang tạo file HTML…")
             self.update_idletasks()
-            path = export_report_html(self.last_report, self.data_mode.get())
+            path = export_report_html(self.last_report, self.data_mode)
             url = f"file:///{path.replace(os.sep, '/')}"
             webbrowser.open(url)
             self.status_var.set(f"Đã mở trình duyệt: {os.path.basename(path)}")
@@ -1146,7 +1141,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         # Tạo chuỗi biểu diễn một ràng buộc dạng "a·x₁ + b·x₂ sense rhs" để hiển thị chú thích trên biểu đồ 2D.
         a, b = coeffs
         parts = []
-        mode = self.data_mode.get()
+        mode = self.data_mode
         if a != 0:
             parts.append(f"{fmt_num(a, mode)}x₁")
         if b != 0:
@@ -1441,7 +1436,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             if is_best:
                 tx,ty = (x1+x2)/2,(y1+y2)/2
                 ax.text(tx, ty,
-                        f"  z = {fmt_num(Fraction(str(lv)), self.data_mode.get())}",
+                        f"  z = {fmt_num(Fraction(str(lv)), self.data_mode)}",
                         color="#e2e8f0", fontsize=9, weight="bold",
                         bbox=dict(boxstyle="round,pad=0.2",
                                   fc="#1e293b", ec="#60a5fa", alpha=0.95), zorder=4)
@@ -1596,7 +1591,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
     def _format_problem(self, engine):
         # Tạo chuỗi hiển thị bài toán gốc (trước chuẩn hóa):
         # Căn thẳng cột: cụm (hệ số·biến) của từng biến thẳng nhau, dấu ≤/≥/= thẳng, RHS thẳng.
-        mode = self.data_mode.get()
+        mode = self.data_mode
         prob = engine.problem
         n = len(prob.obj_coeffs)
         var_names = [f"x{i+1}" for i in range(n)]
@@ -1703,7 +1698,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         #   - Biến tự do / âm được thay thế bằng biến phụ
         #   - Ràng buộc ≥ nhân (-1), ràng buộc = thêm biến bù
         #   - Bài toán max nhân (-1) để đưa về dạng min
-        mode = self.data_mode.get()
+        mode = self.data_mode
         def expr(coeffs, names):
             parts=[]
             for c,nm in zip(coeffs,names):
@@ -1791,7 +1786,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         # Khoảng cách giữa các cột = GAP cố định (không phụ thuộc nội dung).
         # Bỏ separator │ để gọn hơn.
         GAP = 2          # số khoảng trắng giữa hai cột liền kề
-        mode = self.data_mode.get()
+        mode = self.data_mode
         names = snapshot.all_names
 
         all_rows = [(snapshot.objective_label, snapshot.obj_const, snapshot.obj)]
@@ -1866,7 +1861,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
     def _insert_step_note(self, step, snapshot):
         # In giải thích chi tiết một bước xoay: quy tắc chọn biến vào (Dantzig/Bland), bảng tỉ số θ để chọn biến ra, phần tử xoay, và cờ suy biến nếu θ = 0.
-        mode=self.data_mode.get(); names=snapshot.all_names
+        mode=self.data_mode; names=snapshot.all_names
         enter=names[step.entering] if step.entering is not None else "?"
         leave=names[step.leaving_var] if step.leaving_var is not None else "?"
         rule="Dantzig" if step.method=="dantzig" else "Bland"
@@ -1922,7 +1917,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
     def _format_multiple_optimal_family(self, engine, snapshot, report):
         # Tạo chuỗi mô tả họ vô số nghiệm tối ưu.
-        mode = self.data_mode.get()
+        mode = self.data_mode
         free_vars = report.multiple_optimal_vars or []
         if not free_vars:
             return []
@@ -1991,7 +1986,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return lines
 
     def _format_multiple_optimal_conclusion(self, engine, snapshot, report):
-        mode = self.data_mode.get()
+        mode = self.data_mode
         free_vars = report.multiple_optimal_vars or []
         if not free_vars:
             return []
@@ -2111,7 +2106,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
     def _render_result(self, report):
         self.output.delete("1.0",tk.END)
-        engine=report.engine; mode=self.data_mode.get()
+        engine=report.engine; mode=self.data_mode
         self.output.insert(tk.END,self._format_problem(engine)+"\n\n","h1")
         self.output.insert(tk.END,self._format_standardization(engine)+"\n","mono")
 
@@ -2327,7 +2322,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
     def _format_aux_phase1_problem(self, engine):
         """In bài toán bổ trợ x0 theo dạng đề bài cụ thể."""
-        mode = self.data_mode.get()
+        mode = self.data_mode
         lines = []
         lines.append("  Bài toán bổ trợ (δ = x0):")
         lines.append("")
@@ -2360,7 +2355,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
     def _format_phase2_transition_aux(self, engine, snap1):
         """In chi tiết bước chuyển từ pha 1 bổ trợ sang pha 2."""
-        mode = self.data_mode.get()
+        mode = self.data_mode
         lines = []
         aux_idx = getattr(engine, "phase1_aux_var_index", None)
 
