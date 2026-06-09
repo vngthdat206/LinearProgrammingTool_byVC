@@ -209,13 +209,13 @@ def _step_note_html(step: PivotStep, snapshot: Snapshot, mode: str) -> str:
         coeff = snapshot.obj.get(step.entering, Fraction(0))
         if step.method == "dantzig":
             lines.append(f"<p>Chọn <b>${enter}$</b> vì có hệ số nhỏ nhất "
-                         f"$= {_frac(coeff, mode)}$ trong hàng mục tiêu.</p>")
+                         f"$= {_frac(coeff, mode)}$ trong hàm mục tiêu.</p>")
         else:
-            lines.append(f"<p>Bland: chọn <b>${enter}$</b> (chỉ số nhỏ nhất trong các biến cải thiện).</p>")
+            lines.append(f"<p>Chọn biến có chỉ số bé nhất <b>${enter}$</b>.</p>")
         lines.append(f"<p>$\\Rightarrow$ Biến vào: ${enter}$</p>")
 
     if step.ratios:
-        lines.append(f"<p>Bảng tỉ số $\\theta$ tại cột ${enter}$:</p>")
+        lines.append(f"<p>Bảng tỉ số $\\theta$ tại cột ${enter}$ có hệ số âm:</p>")
         lines.append("<table class='ratio-table'><tr><th>Hàng</th><th>$b_i$</th>"
                      "<th>$a_{{i,enter}}$</th><th>$\\theta = b_i / (-a_{{i,enter}})$</th></tr>")
         for ri, theta, bi in step.ratios:
@@ -269,7 +269,7 @@ def _render_trace_html(trace: SolveTrace, mode: str) -> str:
 
     # Trạng thái kết thúc
     if trace.status == "optimal":
-        parts.append("<p class='success'>✅ Tất cả hệ số trên hàng mục tiêu đều ≥ 0 → từ vựng hiện tại là tối ưu.</p>")
+        parts.append("<p class='success'>✅ Tất cả hệ số trên hàm mục tiêu đều ≥ 0 → từ vựng hiện tại là tối ưu.</p>")
     elif trace.status == "unbounded":
         last_entering = None
         if trace.steps:
@@ -277,7 +277,7 @@ def _render_trace_html(trace: SolveTrace, mode: str) -> str:
             if last_step.status == "unbounded" and last_step.entering is not None:
                 last_entering = trace.steps[-1].before.all_names[last_step.entering]
         reason = f" (có biến vào ${_tex_var(last_entering)}$ nhưng không có biến ra)" if last_entering else ""
-        parts.append(f"<p class='warn'>⚠️ Bài toán không giới nội{reason}.</p>")
+        parts.append(f"<p class='warn'>Bài toán không giới nội{reason}.</p>")
     elif trace.status == "cycle":
         rule = "Dantzig" if trace.steps and trace.steps[0].method == "dantzig" else "Bland"
         if rule == "Dantzig":
@@ -365,7 +365,7 @@ def _standardization_html(engine, mode: str) -> str:
         for note in sub_notes:
             parts.append(f"<p>{note}</p>")
     else:
-        parts.append("<p>📌 <b>Bước 1: Biến số</b> — tất cả $x_i \\geq 0$, không cần thay thế.</p>")
+        parts.append("<p>📌 <b>Bước 1: Biến số</b> — tất cả $x_i \\geq 0$, không cần thay đổi.</p>")
 
     # ── Bước 2: Chuẩn hóa ràng buộc ──────────────────────────────────────
     parts.append("<p>📌 <b>Bước 2: Chuẩn hóa ràng buộc</b></p>")
@@ -570,7 +570,7 @@ def _conclusion_html(report: SolveReport, engine, mode: str) -> str:
     if status == "unbounded":
         z_val = "$z_{\\max} = +\\infty$" if is_max else "$z_{\\min} = -\\infty$"
         parts.append(f"<div class='conclusion warn-box'><h3>KẾT LUẬN: Không giới nội</h3>"
-                     f"<p>Có biến vào nhưng không có biến ra khả thi → {z_val}.</p></div>")
+                     f"<p>Có biến vào nhưng không có biến ra tương ứng → {z_val}.</p></div>")
         return "".join(parts)
     if status == "cycle":
         rule = "Dantzig" if report.dantzig.steps and report.dantzig.steps[0].method == "dantzig" else "Bland"
@@ -596,14 +596,14 @@ def _conclusion_html(report: SolveReport, engine, mode: str) -> str:
     # Giá trị mục tiêu
     if is_max:
         parts.append(
-            f"<p>$z^* = \\max Z = -(\\min Z') = -({_frac(obj_std, mode)}) = {_frac(obj_orig, mode)}$</p>"
+            f"<p>Giá trị tối ưu là: $z^* = \\max Z = -(\\min Z') = -({_frac(obj_std, mode)}) = {_frac(obj_orig, mode)}$</p>"
         )
     else:
-        parts.append(f"<p>$z^* = \\min Z = {_frac(obj_orig, mode)}$</p>")
+        parts.append(f"Giá trị tối ưu là: <p>$z^* = \\min Z = {_frac(obj_orig, mode)}$</p>")
 
     # Nghiệm
     if report.multiple_optimal and report.multiple_optimal_vars:
-        parts.append("<p class='warn'>⚠️ Bài toán có <b>vô số nghiệm tối ưu</b>.</p>")
+        parts.append("<p class='warn'>Bài toán có <b>vô số nghiệm tối ưu</b>.</p>")
         free_idx = report.multiple_optimal_vars[0]
         snap = (report.phase2_trace.final_snapshot
                 if report.phase2_trace and report.phase2_trace.final_snapshot
@@ -632,7 +632,7 @@ def _conclusion_html(report: SolveReport, engine, mode: str) -> str:
                     param_cond_lines.append(f"${param} \\leq {_frac(bound, mode)}$ (từ ${b_name} \\geq 0$)")
             lower = max(lowers)
             if param_cond_lines:
-                parts.append("<p>Điều kiện khả thi từ các ràng buộc:</p><ul>")
+                parts.append("<p>Điều kiện từ các ràng buộc:</p><ul>")
                 for pc in param_cond_lines:
                     parts.append(f"<li>{pc}</li>")
                 parts.append("</ul>")
@@ -694,7 +694,7 @@ def _conclusion_html(report: SolveReport, engine, mode: str) -> str:
             # Điều kiện tham số ở cuối (sau nghiệm tổng quát)
             parts.append(param_summary)
     else:
-        parts.append("<p><b>Nghiệm tối ưu:</b></p><ul>")
+        parts.append("<p><b>Nghiệm tối ưu là:</b></p><ul>")
         for i in range(len(engine.problem.var_signs)):
             val = report.solution_orig.get(i, Fraction(0))
             parts.append(f"<li>$x_{{{i+1}}} = {_frac(val, mode)}$</li>")
@@ -855,8 +855,8 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 </head>
 <body>
 <div class="page-header">
-  <h1>Bài toán Quy hoạch tuyến tính — Phương pháp Đơn hình</h1>
-  <p>Xuất từ ứng dụng SimplexApp &nbsp;·&nbsp; Hiển thị LaTeX với KaTeX</p>
+  <h1>Giải Bài toán Quy hoạch tuyến tính (tổng quát) </h1>
+  <p>Xuất từ ứng dụng &nbsp;·&nbsp; Hiển thị LaTeX với KaTeX</p>
 </div>
 <div class="container">
 {body}
@@ -873,7 +873,7 @@ def _aux_phase1_problem_html(engine, mode: str) -> str:
     """Tạo HTML mô tả bài toán bổ trợ x0 dạng đề bài cụ thể."""
     parts: List[str] = []
     parts.append("<div style='background:#F0FDF4;border-left:4px solid #22C55E;padding:12px 18px;margin:8px 0;border-radius:0 6px 6px 0'>")
-    parts.append("<p><b>Bài toán bổ trợ (δ = x₀):</b></p>")
+    parts.append("<p><b>Bài toán bổ trợ:</b></p>")
     parts.append("<p style='margin:4px 0 2px'>$$\\min\\; x_0$$</p>")
     # Build constraint lines
     con_lines: List[str] = []
@@ -1003,7 +1003,7 @@ def export_report_html(report: SolveReport, mode: str = "Phân số") -> str:
         body_parts.append("<h2>🔧 Pha 1</h2>")
         if has_aux:
             body_parts.append(
-                "<p class='note'>Tồn tại $b_i &lt; 0$ → cần tìm cơ sở khả thi ban đầu bằng bài toán bổ trợ ($\\delta = x_0$).</p>"
+                "<p class='note'>Tồn tại $b_i &lt; 0$ → tìm từ vựng xuất phát chấp nhận được bằng bài toán bổ trợ.</p>"
             )
             body_parts.append(_aux_phase1_problem_html(engine, mode))
         elif has_art:
@@ -1011,7 +1011,7 @@ def export_report_html(report: SolveReport, mode: str = "Phân số") -> str:
             art_str = ", ".join(f"${nm}$" for nm in art_names)
             body_parts.append(
                 f"<p class='note'>Ràng buộc đẳng thức → thêm biến độ nhiễu: {art_str}. "
-                f"Bài toán bổ trợ: $\\min\\;({'+'.join(art_names)})$.</p>"
+                f"Bài toán bổ trợ:</p>"
             )
         body_parts.append(_render_trace_html(report.dantzig, mode))
         if report.phase1_bland is not None and report.phase1_bland is not report.dantzig:
@@ -1041,8 +1041,7 @@ def export_report_html(report: SolveReport, mode: str = "Phân số") -> str:
         body_parts.append("<div class='phase-section'>")
         body_parts.append("<h2>🎯 Giải bài toán</h2>")
         body_parts.append(
-            "<p class='note'>Tất cả $b_i \\geq 0$ → cơ sở ban đầu là $w_1, \\ldots, w_m$ khả thi, "
-            "không cần thực hiện Pha 1.</p>"
+            "<p class='note'>Tất cả $b_i \\geq 0$ → từ vựng xuất phát là chấp nhận được, không cần thực hiện Pha 1.</p>"
         )
         body_parts.append(_render_trace_html(report.dantzig, mode))
         if report.bland is not None and report.bland is not report.dantzig:
