@@ -177,7 +177,7 @@ class SimplexAnimator(tk.Toplevel):
         master: tk.Widget,
         traces: List[Tuple[str, SolveTrace]],
         data_mode: str = "Phân số",
-        title: str = "Phát lại các bước Simplex",
+        title: str = "Phát lại từ vựng các bước",
     ):
         """
         Parameters
@@ -474,8 +474,8 @@ class SimplexAnimator(tk.Toplevel):
         PAD_X, PAD_Y = 10, 5
 
         # ── Hàng 0: Header ───────────────────────────────────────────────────
-        # col 0 = "Cơ sở", col 1 = "RHS", col 2+ = tên biến
-        headers = ["Cơ sở", "RHS"] + [all_names[j] for j in display_col_indices]
+        # col 0 = "Cơ sở", col 1 = "hệ số tự do", col 2+ = tên biến
+        headers = ["Cơ sở", "hệ số tự do"] + [all_names[j] for j in display_col_indices]
         for gc, text in enumerate(headers):
             is_pivot_col = (
                 gc >= 2
