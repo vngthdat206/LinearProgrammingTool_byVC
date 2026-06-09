@@ -711,9 +711,9 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         )
 
     def _fill_demo_multiple_two_phase(self):
-        # Vô số nghiệm, có ràng buộc = → biến độ nhiễu pha 1 (cổ điển)
+        # Vô số nghiệm, có ràng buộc = → tách thành 2 ràng buộc ≤, cần pha 1 bổ trợ x0
         # min Z = x1 + 2x2
-        # x1 + 2x2 = 8  (đẳng thức → cần biến độ nhiễu pha 1)
+        # x1 + 2x2 = 8  (đẳng thức → tách thành RB1a: ≤8 và RB1b: ≥8)
         # x1 + x2  ≤ 6,  x1 ≤ 5
         # → đường mục tiêu trùng ràng buộc đẳng thức → vô số nghiệm, Z* = 8
         self._apply_demo(
@@ -2173,67 +2173,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                     self.output.insert(tk.END, "\nKẾT LUẬN\n", "h2")
                     self.output.insert(tk.END, "  ⚠️ Bài toán không thể giải bằng Dantzig do xoay vòng (Cycling) ở Pha 2!\n", "warn")
                     self.output.insert(tk.END, "  Hàm mục tiêu rơi vào vòng lặp vô hạn giữa các từ vựng suy biến.\n", "note")
-                    self.output.insert(tk.END, "  👉 Hãy chuyển sang phương pháp Bland hoặc Hai pha để giải quyết.\n", "warn")
-                    return
-            else:
-                inf_msg = "z_max = −∞" if is_max else "z_min = +∞"
-                self.output.insert(tk.END,f"\nKẾT LUẬN\n  Vô nghiệm → Giá trị tối ưu là {inf_msg}.\n","warn"); return
-
-        elif engine.artificial_vars:
-            # ── Pha 1 cổ điển: biến độ nhiễu từ ràng buộc = ────────────
-            self.output.insert(tk.END,
-                "\n=============================\n"
-                " Pha 1: Loại biến độ nhiễu\n"
-                "=============================\n","h2")
-            art_names = [engine.all_names[a] for a in engine.artificial_vars]
-            self.output.insert(tk.END,
-                f"  Ràng buộc đẳng thức → thêm biến độ nhiễu: {', '.join(art_names)}\n"
-                f"  Bài toán bổ trợ: min {' + '.join(art_names)}\n\n","note")
-            self._render_trace("Pha 1",report.dantzig)
-            if report.dantzig.status == "cycle":
-                self.output.insert(tk.END, "\nKẾT LUẬN\n", "h2")
-                self.output.insert(tk.END, "  ⚠️ Bài toán không thể giải bằng Dantzig do xoay vòng (Cycling) trong quá trình loại biến độ nhiễu!\n", "warn")
-                self.output.insert(tk.END, "  👉 Hãy chuyển sang phương pháp Bland hoặc Hai pha để giải quyết.\n", "warn")
-                return
-            self.output.insert(tk.END,"\n")
-            if report.status=="infeasible":
-                self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
-                inf_msg = "z_max = −∞" if is_max else "z_min = +∞"
-                self.output.insert(tk.END,
-                    f"  Vô nghiệm: Pha 1 kết thúc với hàm bổ trợ > 0\n"
-                    f"  → biến độ nhiễu ({', '.join(art_names)}) không thể đưa ra khỏi cơ sở\n"
-                    f"  → Giá trị tối ưu là {inf_msg}.\n","warn")
-                return
-            if report.phase2_trace is not None:
-                self.output.insert(tk.END,
-                    "\n────────────────────────────────────\n"
-                    " Chuyển sang Pha 2\n"
-                    "────────────────────────────────────\n","h2")
-                self.output.insert(tk.END,
-                    f"  min bổ trợ = 0, các biến độ nhiễu ({', '.join(art_names)}) = 0 → loại khỏi từ vựng.\n"
-                    f"  Thay hàm mục tiêu gốc vào từ vựng hiện tại.\n\n","note")
-                # Nếu Pha 2 Dantzig cycle và đã fallback sang Bland: phase1_bland chứa trace Dantzig (cycle)
-                phase2_dantzig_cycle = (
-                    report.phase1_bland is not None
-                    and report.phase1_bland.cycle_detected
-                    and report.used_method == "bland"
-                )
-                if phase2_dantzig_cycle:
-                    self._render_trace("Pha 2 - Dantzig", report.phase1_bland)
-                    self.output.insert(tk.END, "\n  ⚠️ Dantzig xoay vòng ở Pha 2 → chuyển sang Bland.\n", "warn")
-                    self.output.insert(tk.END,
-                        "\n============================\n"
-                        " Pha 2 (Bland): Giải bài toán gốc\n"
-                        "============================\n","h2")
-                else:
-                    self.output.insert(tk.END,
-                        "\n============================\n"
-                        " Pha 2: Giải bài toán gốc\n"
-                        "============================\n","h2")
-                self._render_trace("Pha 2",report.phase2_trace)
-                if report.phase2_trace.status == "cycle":
-                    self.output.insert(tk.END, "\nKẾT LUẬN\n", "h2")
-                    self.output.insert(tk.END, "  ⚠️ Bài toán không thể giải bằng Dantzig do xoay vòng (Cycling) ở Pha 2!\n", "warn")
                     self.output.insert(tk.END, "  👉 Hãy chuyển sang phương pháp Bland hoặc Hai pha để giải quyết.\n", "warn")
                     return
             else:
