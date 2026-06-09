@@ -59,7 +59,7 @@ def _tex_var(name: str) -> str:
     for prefix in ("x", "w", "y", "a", "b", "s", "δ"):
         if name.startswith(prefix) and name[len(prefix):].isdigit():
             return f"{prefix}_{{{name[len(prefix):]}}}"
-    if name in ("z", "δ", "w"):
+    if name in ("z", "δ", "w", "z'"):
         return name
     return name
 

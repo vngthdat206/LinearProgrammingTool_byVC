@@ -737,7 +737,7 @@ class SimplexEngine:
 
     def solve_full(self, preferred_method: str = "dantzig") -> SolveReport:
         notes = self.standardization_lines[:] + self.strict_notes[:]
-
+        obj_label = "z'" if self.problem.objective_sense == "max" else "z"
         if self.need_aux_phase1:
             basis, rows, rhs, obj_const, obj, aux_idx = self._phase1_aux_start()
             phase1 = self._solve_phase1_aux_once(preferred_method, basis, rows, rhs, obj_const, obj, "δ", aux_idx)
@@ -765,9 +765,9 @@ class SimplexEngine:
                 )
 
             basis2, rows2, rhs2, obj_const2, obj2 = self._phase2_start(phase1.final_snapshot, strip_vars=[aux_idx])
-            phase2 = self._solve_once(used, 2, basis2, rows2, rhs2, obj_const2, obj2, "z", self.artificial_vars)
+            phase2 = self._solve_once(used, 2, basis2, rows2, rhs2, obj_const2, obj2, obj_label, self.artificial_vars)
             if phase2.status == "cycle" and used == "dantzig":
-                phase2_bland = self._solve_once("bland", 2, basis2, rows2, rhs2, obj_const2, obj2, "z", self.artificial_vars)
+                phase2_bland = self._solve_once("bland", 2, basis2, rows2, rhs2, obj_const2, obj2, obj_label, self.artificial_vars)
                 return self._assemble_report(
                     "bland", phase1, phase2_bland, notes, phase1_infeasible=False,
                     phase1_bland=phase2, phase2_trace=phase2_bland
@@ -803,9 +803,9 @@ class SimplexEngine:
                 )
 
             basis2, rows2, rhs2, obj_const2, obj2 = self._phase2_start(phase1.final_snapshot)
-            phase2 = self._solve_once(used, 2, basis2, rows2, rhs2, obj_const2, obj2, "z", self.artificial_vars)
+            phase2 = self._solve_once(used, 2, basis2, rows2, rhs2, obj_const2, obj2, obj_label, self.artificial_vars)
             if phase2.status == "cycle" and used == "dantzig":
-                phase2_bland = self._solve_once("bland", 2, basis2, rows2, rhs2, obj_const2, obj2, "z", self.artificial_vars)
+                phase2_bland = self._solve_once("bland", 2, basis2, rows2, rhs2, obj_const2, obj2, obj_label, self.artificial_vars)
                 return self._assemble_report(
                     "bland", phase1, phase2_bland, notes, phase1_infeasible=False,
                     phase1_bland=phase1_bland, phase2_trace=phase2_bland, phase2_dantzig=phase2
@@ -816,7 +816,7 @@ class SimplexEngine:
             )
 
         basis, rows, rhs, obj_const, obj = self._phase2_start(self._state(self.initial_basis, self.initial_rows, self.initial_rhs, Fraction(0), {}, 2, "z", self.artificial_vars))
-        dantzig = self._solve_once(preferred_method, 2, basis, rows, rhs, obj_const, obj, "z", self.artificial_vars)
+        dantzig = self._solve_once(preferred_method, 2, basis, rows, rhs, obj_const, obj, obj_label, self.artificial_vars)
         return self._assemble_report(
             preferred_method, dantzig, None, notes, phase1_infeasible=False,
             phase1_bland=None, phase2_trace=dantzig
