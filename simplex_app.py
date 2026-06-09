@@ -1712,7 +1712,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             return s[2:] if s.startswith("+ ") else s
         n_orig=len(engine.problem.var_signs)
         extra_x=[nm for nm in engine.std_names if nm.startswith("x") and nm not in {f"x{i+1}" for i in range(n_orig)}]
-        lines=["========================","*Chuẩn hóa bài toán gốc:","========================","","+ Chuẩn hóa ràng buộc dấu:"]
+        lines=["──────────────────────────","| Chuẩn hóa bài toán gốc |","──────────────────────────","","+ Chuẩn hóa ràng buộc dấu:"]
         for idx,sign in enumerate(engine.problem.var_signs):
             nm=f"x{idx+1}"
             if sign=="≥0": lines.append(f"        {nm} ≥ 0: giữ nguyên {nm} ≥ 0")
@@ -1753,7 +1753,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         else: 
             lines.append("    Bài toán max → đặt Z' = −Z, min Z' = −max Z:")
             lines.append(f"        min Z' = {obj_expr}")
-        lines+=["","=========================",f"*Dạng chuẩn của bài toán:","=========================",f"    min {z_label} = {obj_expr}","    {"]
+        lines+=["","───────────────────────────",f"| Dạng chuẩn của bài toán |","───────────────────────────",f"    min {z_label} = {obj_expr}","    {"]
         for i,row in enumerate(engine.std_constraints):
             lines.append(f"      {expr(row,engine.std_names[:len(row)])} ≤ {fmt_num(engine.std_rhs[i],mode)}")
         slack_names=[nm for nm in engine.all_names if nm.startswith("w")]
@@ -1889,12 +1889,12 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         if step.entering is not None:
             coeff=snapshot.obj.get(step.entering,Fraction(0))
             if step.method=="dantzig":
-                self.output.insert(tk.END,f"— Chọn {enter} vì hệ số nhỏ nhất {fmt_num(coeff,mode)}.\n","note")
+                self.output.insert(tk.END,f"— Chọn {enter} vì hệ số âm nhất {fmt_num(coeff,mode)} trong hàm mục tiêu.\n","note")
             else:
-                self.output.insert(tk.END,f"— Bland: chọn {enter}.\n","note")
+                self.output.insert(tk.END,f"— Chọn biến có chỉ số bé nhất {enter}.\n","note")
             self.output.insert(tk.END,f"  ⟹ biến vào: {enter}\n","note")
         if step.ratios:
-            self.output.insert(tk.END,f"— Tỉ số tại cột {enter}:\n","note")
+            self.output.insert(tk.END,f"— Tỉ số θ tại cột {enter} với hệ số âm:\n","note")
             for ri,theta,bi in step.ratios:
                 coeff=snapshot.rows[ri][step.entering] if step.entering is not None else Fraction(1)
                 self.output.insert(tk.END,f"  • {names[bi]}: {fmt_num(snapshot.rhs[ri],mode)} / {fmt_num(-coeff,mode)} = {fmt_num(theta,mode)}\n","note")
@@ -2092,7 +2092,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             if step.after is not None:
                 self._insert_snapshot(step.after,f"Sau xoay bước {step.iteration}:")
                 self.output.insert(tk.END,"\n")
-        if trace.status=="optimal": self.output.insert(tk.END,"  Tất cả hệ số trên hàng mục tiêu đều ≥ 0 → từ vựng hiện tại là tối ưu.\n","note")
+        if trace.status=="optimal": self.output.insert(tk.END,"  Tất cả hệ số trên hàm mục tiêu đều ≥ 0 → từ vựng hiện tại là tối ưu.\n","note")
         elif trace.status=="unbounded":
             # Tìm biến vào từ bước cuối để nêu lý do
             last_entering = None
@@ -2115,11 +2115,12 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         if self._has_aux_phase1(engine):
             # ── Pha 1: biến phụ x0 ──────────────────────────────────────
             self.output.insert(tk.END,
-                "\n=============================\n"
+                "\n───────────────────────────────────\n"
                 " Pha 1: Giải bài toán bổ trợ\n"
-                "=============================\n","h2")
+                "───────────────────────────────────\n","h2")
             self.output.insert(tk.END,
-                "  Tồn tại b_i < 0 → cần tìm cơ sở khả thi ban đầu bằng bài toán bổ trợ.\n\n","note")
+                "  Tồn tại b_i < 0 → tìm từ vựng xuất phát chấp nhận được\n"
+                "                    bằng bài toán bổ trợ.\n\n","note")
             for line in self._format_aux_phase1_problem(engine):
                 self.output.insert(tk.END, line + "\n", "note")
             self.output.insert(tk.END, "\n")
@@ -2133,28 +2134,28 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 return
             self.output.insert(tk.END,"\n")
             if report.status=="infeasible":
-                self.output.insert(tk.END,"  Tất cả hệ số trên hàng mục tiêu đều ≥ 0 → từ vựng hiện tại là tối ưu.\n","note")
+                self.output.insert(tk.END,"  Tất cả hệ số trên hàm mục tiêu đều ≥ 0 → từ vựng hiện tại là tối ưu.\n","note")
                 self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
                 inf_msg = "z_max = −∞" if is_max else "z_min = +∞"
                 self.output.insert(tk.END,
                     f"  Vô nghiệm: sau Pha 1, x0 vẫn còn trong cơ sở (x0 > 0)\n"
-                    f"  → miền chấp nhận được rỗng → Giá trị tối ưu là {inf_msg}.\n","warn")
+                    f"  → miền chấp nhận được rỗng → {inf_msg}.\n","warn")
                 return
             if report.phase2_trace is not None:
                 # In bước chuyển sang pha 2
                 snap1 = report.dantzig.final_snapshot
                 if snap1:
                     self.output.insert(tk.END,
-                        "\n────────────────────────────────────\n"
+                        "\n───────────────────────────────────\n"
                         " Chuyển sang Pha 2\n"
-                        "────────────────────────────────────\n","h2")
+                        "───────────────────────────────────\n","h2")
                     for line in self._format_phase2_transition_aux(engine, snap1):
                         self.output.insert(tk.END, line + "\n", "note")
                     self.output.insert(tk.END, "\n")
                 self.output.insert(tk.END,
-                    "\n============================\n"
+                    "\n───────────────────────────────────\n"
                     " Pha 2: Giải bài toán gốc\n"
-                    "============================\n","h2")
+                    "───────────────────────────────────\n","h2")
                 # Nếu Pha 2 Dantzig cycle và đã fallback sang Bland: phase1_bland chứa trace Dantzig (cycle)
                 phase2_dantzig_cycle = (
                     report.phase1_bland is not None
@@ -2165,36 +2166,37 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                     self._render_trace("Pha 2 - Dantzig", report.phase1_bland)
                     self.output.insert(tk.END, "\n  ⚠️ Dantzig xoay vòng ở Pha 2 → chuyển sang Bland.\n", "warn")
                     self.output.insert(tk.END,
-                        "\n============================\n"
+                        "\n───────────────────────────────────\n"
                         " Pha 2 (Bland): Giải bài toán gốc\n"
-                        "============================\n","h2")
+                        "───────────────────────────────────\n","h2")
                 self._render_trace("Pha 2", report.phase2_trace)
                 if report.phase2_trace.status == "cycle":
                     self.output.insert(tk.END, "\nKẾT LUẬN\n", "h2")
-                    self.output.insert(tk.END, "  ⚠️ Bài toán không thể giải bằng Dantzig do xoay vòng (Cycling) ở Pha 2!\n", "warn")
+                    self.output.insert(tk.END, "  ⚠️ Bài toán không thể giải bằng Dantzig do xoay vòng ở Pha 2!\n", "warn")
                     self.output.insert(tk.END, "  Hàm mục tiêu rơi vào vòng lặp vô hạn giữa các từ vựng suy biến.\n", "note")
                     self.output.insert(tk.END, "  👉 Hãy chuyển sang phương pháp Bland hoặc Hai pha để giải quyết.\n", "warn")
                     return
             else:
                 inf_msg = "z_max = −∞" if is_max else "z_min = +∞"
-                self.output.insert(tk.END,f"\nKẾT LUẬN\n  Vô nghiệm → Giá trị tối ưu là {inf_msg}.\n","warn"); return
+                self.output.insert(tk.END,f"\nKẾT LUẬN\n  Vô nghiệm → {inf_msg}.\n","warn"); return
 
         else:
             # ── Không cần Pha 1 ─────────────────────────────────────────
             self.output.insert(tk.END,
-                "\n============================\n"
+                "\n───────────────────────────────────\n"
                 " Không cần Pha 1\n"
-                "============================\n","h2")
+                "───────────────────────────────────\n","h2")
             self.output.insert(tk.END,
-                "  Tất cả b_i ≥ 0 → cơ sở w_1, ..., w_m là cơ sở khả thi ban đầu,\n"
-                "  không cần thực hiện Pha 1.\n\n"
-                "============================\n"
+                "  Tất cả b_i ≥ 0 → từ vựng xuất phát là chấp nhận được,\n"
+                "                   không cần thực hiện Pha 1.\n\n")
+            self.output.insert(tk.END,
+                "───────────────────────────────────\n"
                 " Giải bài toán\n"
-                "============================\n","note")
+                "───────────────────────────────────\n","h2")
             self._render_trace("Giải bài toán",report.dantzig)
             if report.dantzig.status == "cycle":
                 self.output.insert(tk.END, "\nKẾT LUẬN\n", "h2")
-                self.output.insert(tk.END, "  ⚠️ Bài toán không thể giải bằng Dantzig do xoay vòng (Cycling)!\n", "warn")
+                self.output.insert(tk.END, "  ⚠️ Bài toán không thể giải bằng Dantzig do xoay vòng!\n", "warn")
                 self.output.insert(tk.END, "  Từ vựng đã quay lại trạng thái trước đó sau các bước suy biến, thuật toán lặp vô hạn.\n", "note")
                 self.output.insert(tk.END, "  👉 Hãy chuyển sang phương pháp Bland hoặc Hai pha để giải quyết.\n", "warn")
                 return
@@ -2210,7 +2212,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 self.output.insert(tk.END,"  Bài toán không giới nội: z_min = −∞.\n","warn")
             return
         if report.status=="cycle":
-            self.output.insert(tk.END,"\nKẾT LUẬN\n  ⚠️ Bài toán không thể giải bằng phương pháp này do xoay vòng (Cycling).\n","warn"); return
+            self.output.insert(tk.END,"\nKẾT LUẬN\n  ⚠️ Bài toán không thể giải bằng phương pháp này do xoay vòng.\n","warn"); return
 
         obj_std=report.objective_std or Fraction(0)
         obj_orig=report.objective_orig or Fraction(0)
@@ -2222,11 +2224,11 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             if is_max:
                 self.output.insert(tk.END,
                     f"  Bài toán có vô số nghiệm tối ưu.\n"
-                    f"  Giá trị tối ưu là z* = max Z = −(min Z') = −({fmt_num(obj_std,mode)}) = {fmt_num(obj_orig,mode)}\n")
+                    f"  Giá trị tối ưu là: z* = max Z = −(min Z') = −({fmt_num(obj_std,mode)}) = {fmt_num(obj_orig,mode)}\n")
             else:
                 self.output.insert(tk.END,
                     f"  Bài toán có vô số nghiệm tối ưu.\n"
-                    f"  Giá trị tối ưu là z* = {fmt_num(obj_orig,mode)}\n","note")
+                    f"  Giá trị tối ưu là: z* = {fmt_num(obj_orig,mode)}\n","note")
             for line in self._format_multiple_optimal_conclusion(engine,final,report):
                 self.output.insert(tk.END,line+"\n","note")
         else:
@@ -2235,18 +2237,18 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             if is_max:
                 self.output.insert(tk.END,
                     f"  Tối ưu ({method_lbl}).\n"
-                    f"  Giá trị tối ưu là z* = max Z = −(min Z') = −({fmt_num(obj_std,mode)}) = {fmt_num(obj_orig,mode)}\n",
+                    f"  Giá trị tối ưu là: z* = max Z = −(min Z') = −({fmt_num(obj_std,mode)}) = {fmt_num(obj_orig,mode)}\n",
                     "note")
             else:
                 self.output.insert(tk.END,
                     f"  Tối ưu ({method_lbl}).\n"
-                    f"  Giá trị tối ưu là z* = {fmt_num(obj_orig,mode)}\n",
+                    f"  Giá trị tối ưu là: z* = {fmt_num(obj_orig,mode)}\n",
                     "note")
             n_orig = len(engine.problem.var_signs)
             sol_strs = [fmt_num(report.solution_orig.get(i, Fraction(0)), mode) for i in range(n_orig)]
             val_w = max(len(s) for s in sol_strs)
             var_w = max(len(f"x{i+1}") for i in range(n_orig))
-            self.output.insert(tk.END,"  Nghiệm tối ưu:\n","note")
+            self.output.insert(tk.END,"  Nghiệm tối ưu là:\n","note")
             for i, val_s in enumerate(sol_strs):
                 nm = f"x{i+1}".ljust(var_w)
                 val = val_s.rjust(val_w)
@@ -2263,7 +2265,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         """In bài toán bổ trợ x0 theo dạng đề bài cụ thể."""
         mode = self.data_mode
         lines = []
-        lines.append("  Bài toán bổ trợ (δ = x0):")
+        lines.append("  Bài toán bổ trợ:")
         lines.append("")
         lines.append("    min x0")
         lines.append("    {")
@@ -2288,8 +2290,8 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         lines.append(f"      {', '.join(var_list)} ≥ 0")
         lines.append("    }")
         lines.append("")
-        lines.append("  (Giải pha 1: đưa x0 vào cơ sở tại hàng có rhs âm nhất,")
-        lines.append("   sau đó tối thiểu hóa x0 bằng đơn hình chuẩn.)")
+        lines.append("  (Giải pha 1: đưa x0 vào cơ sở tại hàng có b_i âm nhất,")
+        lines.append("   sau đó tối thiểu hóa x0 bằng đơn hình chuẩn)")
         return lines
 
     def _format_phase2_transition_aux(self, engine, snap1):
@@ -2422,7 +2424,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 state_d, lbl_d = tk.DISABLED, format_label("Dantzig", "dantzig", True)
                 state_b, lbl_b = tk.DISABLED, format_label("Bland", "bland", True)
                 state_hp, lbl_hp = tk.NORMAL, format_label("Hai Pha", "haipha", False)
-                reason_th = "Thuật toán đề xuất: Hai Pha (vì tồn tại b_i < 0, bắt buộc dùng bài toán phụ)."
+                reason_th = "Thuật toán đề xuất: Hai Pha (vì tồn tại b_i < 0, bắt buộc dùng bài toán bổ trợ)."
                 default_view = "haipha"
                 
             elif has_zero:
