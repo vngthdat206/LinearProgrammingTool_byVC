@@ -1683,8 +1683,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             else:              sign_parts.append(f"{nm} tự do")
 
         lines = [
-            "Bài tập Quy Hoạch Tuyến Tính",
-            "  Bài toán:",
+            "Bài toán Quy Hoạch Tuyến Tính:",
             obj_line,
             "    s.t. {",
         ]
@@ -1768,15 +1767,13 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             else:  # tự do: a_i, b_i >= 0 (không phải x_i)
                 nonneg_vars.append(f"a{i+1}")
                 nonneg_vars.append(f"b{i+1}")
-        nonneg_vars += slack_names
-        # Thêm biến độ nhiễu
         art_names_list = [engine.all_names[a] for a in engine.artificial_vars]
         nonneg_vars += art_names_list
         # Deduplicate giữ thứ tự
         seen_nonneg = set(); nonneg_unique = []
         for v in nonneg_vars:
             if v not in seen_nonneg: seen_nonneg.add(v); nonneg_unique.append(v)
-        lines.append(f"    {', '.join(nonneg_unique)} ≥ 0")
+        lines.append(f"      {', '.join(nonneg_unique)} ≥ 0")
         lines.append("    }")
         return "\n".join(lines)
 
