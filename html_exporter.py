@@ -419,12 +419,12 @@ def _standardization_html(engine, mode: str) -> str:
                 f"<tr>"
                 f"<td style='white-space:nowrap' rowspan='2'><b>RB {orig_i+1}</b></td>"
                 f"<td style='white-space:nowrap' rowspan='2'>${orig_lhs} = {orig_rhs}$</td>"
-                f"<td style='white-space:nowrap;color:#0F766E'>$\\Rightarrow\\;{lhs_a} + {slack_a} = {rhs_a_tex}$</td>"
-                f"<td style='color:#475569;font-size:0.88rem'>tách thành RB {orig_i+1}a: thêm $+{slack_a}$</td>"
+                f"<td style='white-space:nowrap;color:#0F766E'>${lhs_a} \\leq {rhs_a_tex}$</td>"
+                f"<td style='white-space:nowrap;color:#0F766E'>${lhs_a} + {slack_a} = {rhs_a_tex}$</td>"
                 f"</tr>"
                 f"<tr>"
-                f"<td style='white-space:nowrap;color:#0F766E'>$\\Rightarrow\\;{lhs_b} + {slack_b} = {rhs_b_tex}$</td>"
-                f"<td style='color:#475569;font-size:0.88rem'>tách thành RB {orig_i+1}b: nhân $(-1)$, thêm $+{slack_b}$</td>"
+                f"<td style='white-space:nowrap;color:#0F766E'>${lhs_b} \\leq {rhs_b_tex}$  <span style=\"color:#64748B;font-size:0.85em\">(nhân $-1$)</span></td>"
+                f"<td style='white-space:nowrap;color:#0F766E'>${lhs_b} + {slack_b} = {rhs_b_tex}$</td>"
                 f"</tr>"
             )
             table_rows.append(sub_rows)
@@ -440,21 +440,21 @@ def _standardization_html(engine, mode: str) -> str:
 
             w_count += 1
             slack_nm = f"w_{{{w_count}}}"
-            if orig_sense == "≤":
-                orig_rb = f"${orig_lhs} \\leq {orig_rhs}$"
-                std_rb  = f"${lhs_str} + {slack_nm} = {rhs_tex}$"
-                note    = f"thêm biến bù $+{slack_nm}$"
+            if orig_sense == '≤':
+                orig_rb    = f'${orig_lhs} \\leq {orig_rhs}$'
+                std_lean   = f'${lhs_str} \\leq {rhs_tex}$'
+                slack_eq   = f'${lhs_str} + {slack_nm} = {rhs_tex}$'
             else:  # ≥
-                orig_rb = f"${orig_lhs} \\geq {orig_rhs}$"
-                std_rb  = f"${lhs_str} + {slack_nm} = {rhs_tex}$"
-                note    = f"nhân $(-1)$: $\\geq \\to \\leq$, thêm biến bù $+{slack_nm}$"
+                orig_rb    = f'${orig_lhs} \\geq {orig_rhs}$'
+                std_lean   = f'${lhs_str} \\leq {rhs_tex}$  <span style="color:#64748B;font-size:0.85em">(nhân $-1$)</span>'
+                slack_eq   = f'${lhs_str} + {slack_nm} = {rhs_tex}$'
 
             table_rows.append(
                 f"<tr>"
                 f"<td style='white-space:nowrap'><b>RB {orig_i+1}</b></td>"
                 f"<td style='white-space:nowrap'>{orig_rb}</td>"
-                f"<td style='white-space:nowrap;color:#0F766E'>$\\Rightarrow$&nbsp;{std_rb}</td>"
-                f"<td style='color:#475569;font-size:0.88rem'>{note}</td>"
+                f"<td style='white-space:nowrap;color:#0F766E'>{std_lean}</td>"
+                f"<td style='white-space:nowrap;color:#0F766E'>{slack_eq}</td>"
                 f"</tr>"
             )
 
@@ -463,8 +463,8 @@ def _standardization_html(engine, mode: str) -> str:
         "<thead><tr style='background:#EFF6FF'>"
         "<th style='padding:6px 12px;border:1px solid #CBD5E1;text-align:left'>RB</th>"
         "<th style='padding:6px 12px;border:1px solid #CBD5E1'>Dạng gốc</th>"
-        "<th style='padding:6px 12px;border:1px solid #CBD5E1'>Dạng chuẩn</th>"
-        "<th style='padding:6px 12px;border:1px solid #CBD5E1'>Ghi chú</th>"
+        "<th style='padding:6px 12px;border:1px solid #CBD5E1'>Dạng chuẩn ($\\leq$)</th>"
+        "<th style='padding:6px 12px;border:1px solid #CBD5E1'>Thêm biến bù</th>"
         "</tr></thead>"
         f"<tbody>{''.join(table_rows)}</tbody>"
         "</table>"
