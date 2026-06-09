@@ -227,10 +227,33 @@ class SimplexEngine:
         self.initial_basis = basis
         self.initial_rows = rows
         self.initial_rhs = rhs_list
-        # Không còn dùng need_aux_phase1 / x0 bổ trợ nữa.
-        # Mọi trường hợp có basis không khả thi ban đầu (rhs<0 gốc hoặc ràng buộc =)
-        # đều được xử lý thống nhất qua artificial_vars + pha 1 chuẩn.
-        self.need_aux_phase1 = False
+        # need_aux_phase1 = True khi có ít nhất một rhs_list[i] < 0 ban đầu (trước khi flip).
+        # Trong trường hợp này, ta dùng bài toán bổ trợ δ = x0 (Pha 1 bổ trợ).
+        # Nếu chỉ có ràng buộc đẳng thức (artificial_vars từ =), dùng Pha 1 chuẩn (min Σ a_k).
+        has_negative_rhs = any(b < 0 for b in self.std_rhs)
+        if has_negative_rhs:
+            # Chuyển lại về dạng gốc: các hàng rhs<0 dùng x0, không dùng artificial từ flip
+            # Xây lại initial_basis/rows/rhs chỉ với slack (không artificial)
+            self.artificial_vars = []  # reset: không dùng artificial mode
+            self.all_names = self.std_names[:]
+            next_slack2 = 1
+            basis2: List[int] = []
+            rows2: List[Dict[int, Fraction]] = []
+            rhs2: List[Fraction] = []
+            for coeffs, sense, b in zip(self.std_constraints, self.std_senses, self.std_rhs):
+                row = {j: -a for j, a in enumerate(coeffs) if a != 0}
+                sidx = len(self.all_names)
+                self.all_names.append(f"w{next_slack2}")
+                next_slack2 += 1
+                basis2.append(sidx)
+                rows2.append(row)
+                rhs2.append(b)
+            self.initial_basis = basis2
+            self.initial_rows = rows2
+            self.initial_rhs = rhs2
+            self.need_aux_phase1 = True
+        else:
+            self.need_aux_phase1 = False
     # ---------- dictionary operations ----------
     @staticmethod
     def _canonicalize(
@@ -363,7 +386,8 @@ class SimplexEngine:
             return min(neg_vars, key=lambda j: (obj[j], j))
         return min(neg_vars)
 
-    def _choose_leaving(self, snapshot: Snapshot, entering: int, method: str) -> Tuple[Optional[int], List[Tuple[int, Fraction, int]]]:
+    def _choose_leaving(self, snapshot: Snapshot, entering: int, method: str,
+                        aux_idx: Optional[int] = None) -> Tuple[Optional[int], List[Tuple[int, Fraction, int]]]:
         candidates: List[Tuple[Fraction, int, int]] = []
         ratios: List[Tuple[int, Fraction, int]] = []
         for i, row in enumerate(snapshot.rows):
@@ -374,15 +398,22 @@ class SimplexEngine:
                 candidates.append((theta, snapshot.basis[i], i))
         if not candidates:
             return None, ratios
+        # Find minimum theta
+        min_theta = min(t[0] for t in candidates)
+        tied = [t for t in candidates if t[0] == min_theta]
+        # Pha 1 aux: nếu có tie và x0 (aux_idx) nằm trong cơ sở của hàng tied → ưu tiên
+        if aux_idx is not None and len(tied) > 1:
+            for theta, b_idx, row_i in tied:
+                if snapshot.basis[row_i] == aux_idx:
+                    return row_i, ratios
         if method == "dantzig":
-            # smallest ratio, first occurrence in tie
             candidates.sort(key=lambda t: (t[0], t[2]))
             return candidates[0][2], ratios
         # Bland: smallest ratio, then smallest basis index
         candidates.sort(key=lambda t: (t[0], t[1], t[2]))
         return candidates[0][2], ratios
 
-    def _solve_once(self, method: str, phase: int, basis: List[int], rows: List[Dict[int, Fraction]], rhs: List[Fraction], obj_const: Fraction, obj: Dict[int, Fraction], objective_label: str, art_vars: List[int]) -> SolveTrace:
+    def _solve_once(self, method: str, phase: int, basis: List[int], rows: List[Dict[int, Fraction]], rhs: List[Fraction], obj_const: Fraction, obj: Dict[int, Fraction], objective_label: str, art_vars: List[int], aux_idx: Optional[int] = None) -> SolveTrace:
         steps: List[PivotStep] = []
         seen = set()
         degenerate_steps = 0
@@ -422,7 +453,7 @@ class SimplexEngine:
                     multiple_optimal=multiple,
                 )
 
-            leaving_row, ratios = self._choose_leaving(snapshot, entering, method)
+            leaving_row, ratios = self._choose_leaving(snapshot, entering, method, aux_idx=aux_idx)
             if leaving_row is None:
                 steps.append(
                     PivotStep(
@@ -610,6 +641,7 @@ class SimplexEngine:
             new_obj,
             objective_label,
             self.artificial_vars,
+            aux_idx=aux_idx,
         )
 
         for st in later.steps:
@@ -862,6 +894,11 @@ class SimplexEngine:
                 free_var_pairs.add(j1)
                 free_var_pairs.add(j2)
 
+        # Tập biến phụ pha 1 bổ trợ (x0) cần loại khỏi free_vars
+        aux_set = set()
+        if self.phase1_aux_var_index is not None:
+            aux_set.add(self.phase1_aux_var_index)
+
         basis_set = set(snapshot.basis)
         multiple = False
         free_vars: List[int] = []
@@ -869,6 +906,8 @@ class SimplexEngine:
             if j in basis_set:
                 continue
             if j in art_set:
+                continue
+            if j in aux_set:
                 continue
             if snapshot.obj.get(j, Fraction(0)) != 0:
                 continue
