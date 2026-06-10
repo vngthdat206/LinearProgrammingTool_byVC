@@ -1,7 +1,6 @@
 
 from __future__ import annotations
 
-import numpy as np
 import math
 import itertools
 from fractions import Fraction
@@ -240,200 +239,206 @@ def _compute_optimal_face_3d(report: SolveReport,
                                c1: float, c2: float, c3: float,
                                maximize: bool
                                ) -> List[Tuple[float, float, float]]:
-    try:
-        import numpy as np
+    import numpy as np
 
-        # ── Tính Z* 
-        if report and report.solution_orig:
-            so = report.solution_orig
-            z_star = (c1 * float(so.get(0, Fraction(0))) +
-                      c2 * float(so.get(1, Fraction(0))) +
-                      c3 * float(so.get(2, Fraction(0))))
-        elif vertices_3d:
-            vals = [c1*x + c2*y + c3*z for x, y, z in vertices_3d]
-            z_star = max(vals) if maximize else min(vals)
-        else:
-            raise ValueError("Không có nghiệm")
+    TOL = 1e-6
 
-        # ── Bounding box hiển thị 
-        # Dùng vertices_3d + nghiệm engine để ước tính phạm vi hợp lý
-        all_ref = list(vertices_3d)
-        if report and report.solution_orig:
-            so = report.solution_orig
-            all_ref.append((float(so.get(0, Fraction(0))),
-                            float(so.get(1, Fraction(0))),
-                            float(so.get(2, Fraction(0)))))
-        if all_ref:
-            xs_r = [p[0] for p in all_ref]
-            ys_r = [p[1] for p in all_ref]
-            zs_r = [p[2] for p in all_ref]
-            span = max(max(xs_r)-min(xs_r), max(ys_r)-min(ys_r), max(zs_r)-min(zs_r), 1.0)
-            cx_r = (max(xs_r)+min(xs_r))/2
-            cy_r = (max(ys_r)+min(ys_r))/2
-            cz_r = (max(zs_r)+min(zs_r))/2
-        else:
-            span = 10.0
-            cx_r = cy_r = cz_r = 0.0
-        
-        pad = span * 1.5
-        BB = (cx_r - pad, cx_r + pad,
-              cy_r - pad, cy_r + pad,
-              cz_r - pad, cz_r + pad)  # (xlo, xhi, ylo, yhi, zlo, zhi)
+    # ── Bước 1: Tính Z* ────────────────────────────────────────────────
+    z_star = None
+    if report and report.solution_orig:
+        so = report.solution_orig
+        z_star = (c1 * float(so.get(0, Fraction(0))) +
+                  c2 * float(so.get(1, Fraction(0))) +
+                  c3 * float(so.get(2, Fraction(0))))
+    if z_star is None and vertices_3d:
+        vals = [c1*x + c2*y + c3*z for x, y, z in vertices_3d]
+        z_star = max(vals) if maximize else min(vals)
+    if z_star is None:
+        return []
 
-        # ── Mặt phẳng biên từ ràng buộc gốc + dấu biến 
-        halfplanes: List[Tuple[float, float, float, float, str]] = []
-        for cons in engine.problem.constraints:
-            coeffs = cons["coeffs"]
-            a  = float(fr(coeffs[0])) if len(coeffs) > 0 else 0.0
-            b  = float(fr(coeffs[1])) if len(coeffs) > 1 else 0.0
-            cc = float(fr(coeffs[2])) if len(coeffs) > 2 else 0.0
-            d  = float(fr(cons["rhs"]))
-            halfplanes.append((a, b, cc, d, sense_to_standard(cons["sense"])))
+    # ── Bước 2: Lấy đỉnh khả thi có Z ≈ Z* ───────────────────────────
+    tol_z = max(TOL, 1e-4 * abs(z_star))
+    opt_vertices = [(x, y, z) for x, y, z in vertices_3d
+                    if abs(c1*x + c2*y + c3*z - z_star) <= tol_z]
 
-        signs = engine.problem.var_signs
-        if len(signs) > 0:
-            if signs[0] == "≥0": halfplanes.append((1., 0., 0., 0., "≥"))
-            elif signs[0] == "≤0": halfplanes.append((1., 0., 0., 0., "≤"))
-        if len(signs) > 1:
-            if signs[1] == "≥0": halfplanes.append((0., 1., 0., 0., "≥"))
-            elif signs[1] == "≤0": halfplanes.append((0., 1., 0., 0., "≤"))
-        if len(signs) > 2:
-            if signs[2] == "≥0": halfplanes.append((0., 0., 1., 0., "≥"))
-            elif signs[2] == "≤0": halfplanes.append((0., 0., 1., 0., "≤"))
+    # ── Bước 3: Nếu không đủ đỉnh → grid sampling trên mặt phẳng Z=Z* ─
+    if len(opt_vertices) < 2:
+        try:
+            # Xây halfplanes từ ràng buộc gốc + dấu biến
+            halfplanes: List[Tuple[float, float, float, float, str]] = []
+            for cons in engine.problem.constraints:
+                coeffs = cons["coeffs"]
+                a   = float(fr(coeffs[0])) if len(coeffs) > 0 else 0.0
+                b   = float(fr(coeffs[1])) if len(coeffs) > 1 else 0.0
+                c_c = float(fr(coeffs[2])) if len(coeffs) > 2 else 0.0
+                d   = float(fr(cons["rhs"]))
+                halfplanes.append((a, b, c_c, d, sense_to_standard(cons["sense"])))
+            for i, sgn in enumerate(engine.problem.var_signs):
+                row = [0., 0., 0.]
+                row[i] = 1.
+                if sgn == "≥0":   halfplanes.append((row[0], row[1], row[2], 0., "≥"))
+                elif sgn == "≤0": halfplanes.append((row[0], row[1], row[2], 0., "≤"))
 
-        # Bổ sung 6 mặt Bounding Box để chặn tia vô cực
-        xlo, xhi, ylo, yhi, zlo, zhi = BB
-        halfplanes.extend([
-            (1., 0., 0., xhi, "≤"), (1., 0., 0., xlo, "≥"),
-            (0., 1., 0., yhi, "≤"), (0., 1., 0., ylo, "≥"),
-            (0., 0., 1., zhi, "≤"), (0., 0., 1., zlo, "≥")
-        ])
+            def feasible_pt(x, y, z):
+                for a, b, c_c, d, sense in halfplanes:
+                    val = a*x + b*y + c_c*z
+                    if sense == "≤" and val > d + TOL: return False
+                    if sense == "≥" and val < d - TOL: return False
+                    if sense == "=" and abs(val - d) > TOL: return False
+                return True
 
-        # ── Hàm kiểm tra điểm thỏa tất cả ràng buộc
-        TOL = 1e-7
-        def feasible(x, y, z):
-            for a, b, cc, d, sense in halfplanes:
-                val = a*x + b*y + cc*z
-                if sense == "≤" and val > d + TOL: return False
-                if sense == "≥" and val < d - TOL: return False
-                if sense == "=" and abs(val - d) > TOL: return False
-            return True
+            # Bounding box từ vertices_3d hoặc ước lượng từ nghiệm + RHS
+            if vertices_3d:
+                xs_r = [p[0] for p in vertices_3d]
+                ys_r = [p[1] for p in vertices_3d]
+                zs_r = [p[2] for p in vertices_3d]
+                span = max(max(xs_r)-min(xs_r), max(ys_r)-min(ys_r),
+                           max(zs_r)-min(zs_r), 2.0)
+                cx_r = (max(xs_r)+min(xs_r))/2
+                cy_r = (max(ys_r)+min(ys_r))/2
+                cz_r = (max(zs_r)+min(zs_r))/2
+            else:
+                # vertices_3d rỗng = miền vô hạn (thường do ràng buộc "=")
+                # Ước lượng bounding box từ:
+                #   1) nghiệm engine (report.solution_orig) làm tâm
+                #   2) max |RHS| của các ràng buộc làm span
+                anchor = [0., 0., 0.]
+                if report and report.solution_orig:
+                    so = report.solution_orig
+                    anchor = [float(so.get(0, Fraction(0))),
+                              float(so.get(1, Fraction(0))),
+                              float(so.get(2, Fraction(0)))]
+                cx_r, cy_r, cz_r = anchor
 
-        # ── Clip đường thẳng bởi tất cả ràng buộc + bounding box
-        def clip_line(pt, direction):
-            t_lo, t_hi = -1e15, 1e15
-            for a, b, cc, d, sense in halfplanes:
-                ni   = np.array([a, b, cc])
-                base = float(np.dot(ni, pt))
-                rate = float(np.dot(ni, direction))
-                if sense in ("≤", "="):
-                    rhs = d - base
-                    if abs(rate) < 1e-12:
-                        if base > d + TOL: return None
-                    elif rate > 0: t_hi = min(t_hi, rhs/rate)
-                    else:          t_lo = max(t_lo, rhs/rate)
-                if sense in ("≥", "="):
-                    rhs = d - base
-                    if abs(rate) < 1e-12:
-                        if base < d - TOL: return None
-                    elif rate > 0: t_lo = max(t_lo, rhs/rate)
-                    else:          t_hi = min(t_hi, rhs/rate)
-            if t_lo > t_hi + TOL: return None
-            return t_lo, t_hi
+                rhs_vals = [abs(float(fr(cons["rhs"])))
+                            for cons in engine.problem.constraints
+                            if cons["rhs"] != 0]
+                base_span = max(rhs_vals) * 3 if rhs_vals else 10.0
+                span = max(base_span, 2.0 * max(abs(cx_r), abs(cy_r), abs(cz_r), 1.0))
+            pad = span * 1.2
 
-        # ── Giao P* với từng H_i -> clip -> thu đầu mút 
-        n0 = np.array([c1, c2, c3], dtype=float)
-        endpoint_cands: List[np.ndarray] = []
+            # Tìm 2 trục nằm trong mặt phẳng c1*x+c2*y+c3*z = z_star
+            n0 = np.array([c1, c2, c3], dtype=float)
+            n0_len = np.linalg.norm(n0)
+            if n0_len < 1e-12:
+                return []
+            n0 /= n0_len
 
-        for a, b, cc, d, sense in halfplanes:
-            ni  = np.array([a, b, cc], dtype=float)
-            dir_ = np.cross(n0, ni)
-            if np.linalg.norm(dir_) < 1e-10:
-                continue  # song song
-            base_pt = None
-            for fix in range(3):
-                free = [i for i in range(3) if i != fix]
-                A2 = np.array([[n0[free[0]], n0[free[1]]],
-                               [ni[free[0]], ni[free[1]]]], dtype=float)
-                b2 = np.array([z_star, d], dtype=float)
-                if abs(np.linalg.det(A2)) < 1e-12: continue
-                uv = np.linalg.solve(A2, b2)
-                bp = np.zeros(3)
-                bp[free[0]] = uv[0]
-                bp[free[1]] = uv[1]
-                base_pt = bp
-                break
-            
-            if base_pt is None: continue
-            clip = clip_line(base_pt, dir_)
-            if clip is None: continue
-            
-            t_lo, t_hi = clip
-            for t in [t_lo, t_hi]:
-                pt = base_pt + t * dir_
-                if abs(c1*pt[0]+c2*pt[1]+c3*pt[2] - z_star) > TOL*100: continue
-                if not feasible(float(pt[0]), float(pt[1]), float(pt[2])): continue
-                endpoint_cands.append(pt.copy())
-
-        # ── Dedup 
-        deduped: List[Tuple[float, float, float]] = []
-        for p in endpoint_cands:
-            pt = (float(p[0]), float(p[1]), float(p[2]))
-            if not any(abs(pt[0]-q[0]) < 1e-5 and
-                       abs(pt[1]-q[1]) < 1e-5 and
-                       abs(pt[2]-q[2]) < 1e-5 for q in deduped):
-                deduped.append(pt)
-
-        if len(deduped) < 2:
-            return deduped
-
-        # ── Sắp xếp convex hull 2D trong mặt phẳng P*
-        if len(deduped) >= 3:
-            arr = np.array(deduped, dtype=float)
-            center = arr.mean(axis=0)
-            nv = np.array([c1, c2, c3], dtype=float)
-            nv_len = np.linalg.norm(nv)
-            if nv_len > 1e-10: nv /= nv_len
-            u_vec = arr[1] - arr[0]
-            if np.linalg.norm(u_vec) < 1e-10:
-                u_vec = arr[2] - arr[0]
+            # Trục u: chọn trục chuẩn ít song song với n0 nhất
+            candidates = [np.array([1.,0.,0.]), np.array([0.,1.,0.]), np.array([0.,0.,1.])]
+            best_u = min(candidates, key=lambda v: abs(float(np.dot(n0, v))))
+            u_vec = best_u - float(np.dot(n0, best_u)) * n0
             u_vec /= (np.linalg.norm(u_vec) + 1e-12)
-            w_vec = np.cross(nv, u_vec)
+            w_vec = np.cross(n0, u_vec)
             w_vec /= (np.linalg.norm(w_vec) + 1e-12)
-            
-            pts2d = np.array([
-                (float(np.dot(p - center, u_vec)),
-                 float(np.dot(p - center, w_vec)))
-                for p in arr
-            ])
-            try:
-                from scipy.spatial import ConvexHull as _CH2
-                h2 = _CH2(pts2d)
-                deduped = [deduped[i] for i in h2.vertices]
-            except Exception:
-                import math
-                angles = [math.atan2(float(pts2d[i,1]), float(pts2d[i,0]))
-                          for i in range(len(deduped))]
-                deduped = [deduped[i] for i in
-                           sorted(range(len(deduped)), key=lambda i: angles[i])]
 
+            origin = None
+            for fix_dim in range(3):
+                free_dims = [i for i in range(3) if i != fix_dim]
+                coef_fix = [c1, c2, c3][fix_dim]
+                if abs(coef_fix) < 1e-12:
+                    continue
+                fix_val = [cx_r, cy_r, cz_r][fix_dim]
+                pt = [cx_r, cy_r, cz_r]
+                pt[fix_dim] = (z_star - [c1, c2, c3][free_dims[0]]*pt[free_dims[0]]
+                                       - [c1, c2, c3][free_dims[1]]*pt[free_dims[1]]) / coef_fix
+                origin = np.array(pt, dtype=float)
+                break
+            if origin is None:
+                return opt_vertices
+
+            # Lưới tham số (s, t) → điểm 3D trên mặt phẳng
+            N = 30
+            ss = np.linspace(-pad, pad, N)
+            tt = np.linspace(-pad, pad, N)
+            S, T = np.meshgrid(ss, tt)
+            S_flat = S.ravel()
+            T_flat = T.ravel()
+
+            sampled = []
+            for s_val, t_val in zip(S_flat, T_flat):
+                pt3 = origin + s_val * u_vec + t_val * w_vec
+                x_p, y_p, z_p = float(pt3[0]), float(pt3[1]), float(pt3[2])
+                if feasible_pt(x_p, y_p, z_p):
+                    sampled.append((x_p, y_p, z_p))
+
+            if len(sampled) >= 2:
+                opt_vertices = sampled
+        except Exception:
+            pass
+
+    if len(opt_vertices) < 2:
+        return opt_vertices
+
+    # ── Bước 4: Dedup ──────────────────────────────────────────────────
+    deduped: List[Tuple[float, float, float]] = []
+    for p in opt_vertices:
+        if not any(abs(p[0]-q[0]) < 1e-5 and
+                   abs(p[1]-q[1]) < 1e-5 and
+                   abs(p[2]-q[2]) < 1e-5 for q in deduped):
+            deduped.append(p)
+
+    if len(deduped) < 2:
         return deduped
 
+    # ── Bước 5: Phân loại đoạn thẳng vs mặt phẳng & sắp thứ tự ───────
+    arr = np.array(deduped, dtype=float)
+
+    if len(deduped) == 2:
+        return deduped
+
+    # Kiểm tra is_planar: có điểm nào không nằm trên đường thẳng nối 2 điểm xa nhất?
+    max_dist = -1.0
+    p0_idx, p1_idx = 0, 1
+    n_pts = len(arr)
+    for ii in range(n_pts):
+        for jj in range(ii + 1, n_pts):
+            dist = float(np.linalg.norm(arr[ii] - arr[jj]))
+            if dist > max_dist:
+                max_dist = dist
+                p0_idx, p1_idx = ii, jj
+
+    is_planar = False
+    if max_dist > 1e-4:
+        d0 = arr[p1_idx] - arr[p0_idx]
+        d0_len = np.linalg.norm(d0)
+        for ii in range(n_pts):
+            if ii in (p0_idx, p1_idx):
+                continue
+            di = arr[ii] - arr[p0_idx]
+            cp_len = float(np.linalg.norm(np.cross(d0, di))) / (d0_len + 1e-12)
+            if cp_len > 1e-3:
+                is_planar = True
+                break
+
+    if not is_planar:
+        # Đoạn thẳng: chỉ cần 2 đầu mút xa nhất
+        return [deduped[p0_idx], deduped[p1_idx]]
+
+    # Mặt phẳng: sắp theo convex hull 2D trong mặt phẳng tối ưu
+    center = arr.mean(axis=0)
+    nv = np.array([c1, c2, c3], dtype=float)
+    nv_len = np.linalg.norm(nv)
+    if nv_len > 1e-10:
+        nv /= nv_len
+    u_v = arr[p1_idx] - arr[p0_idx]
+    u_v /= (np.linalg.norm(u_v) + 1e-12)
+    w_v = np.cross(nv, u_v)
+    w_v /= (np.linalg.norm(w_v) + 1e-12)
+    pts2d = np.array([
+        (float(np.dot(p - center, u_v)),
+         float(np.dot(p - center, w_v)))
+        for p in arr
+    ])
+    try:
+        from scipy.spatial import ConvexHull as _CH
+        hull2 = _CH(pts2d)
+        return [deduped[i] for i in hull2.vertices]
     except Exception:
-        if not vertices_3d: return []
-        so = report.solution_orig if (report and report.solution_orig) else {}
-        if so:
-            z_star2 = (c1*float(so.get(0, Fraction(0))) +
-                       c2*float(so.get(1, Fraction(0))) +
-                       c3*float(so.get(2, Fraction(0))))
-        else:
-            if maximize:
-                z_star2 = max(c1*x+c2*y+c3*z for x, y, z in vertices_3d)
-            else:
-                z_star2 = min(c1*x+c2*y+c3*z for x, y, z in vertices_3d)
-        tol2 = max(1e-6, 1e-4*abs(z_star2))
-        return [(x, y, z) for x, y, z in vertices_3d
-                if abs(c1*x+c2*y+c3*z - z_star2) < tol2]
+        angles = [math.atan2(float(pts2d[i, 1]), float(pts2d[i, 0]))
+                  for i in range(len(deduped))]
+        return [deduped[i] for i in sorted(range(len(deduped)), key=lambda i: angles[i])]
+
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -479,7 +484,11 @@ class Viz3DMixin:
         status = report.status if report else "unknown"
 
         planes = self._build_planes_3d(prob)
-        vertices = _dedup3(self._feasible_vertices_3d(planes))
+
+        # ── Thêm bounding box nếu miền không có đỉnh cô lập ─────────────
+        planes_draw, bbox_M, bbox_artificial = self._add_bounding_box(
+            planes, prob, report)
+        vertices = _dedup3(self._feasible_vertices_3d(planes_draw))
 
         c1 = float(prob.obj_coeffs[0])
         c2 = float(prob.obj_coeffs[1])
@@ -506,7 +515,8 @@ class Viz3DMixin:
             else:
                 optimal = (max(vv, key=lambda t: t[3]) if maximize
                            else min(vv, key=lambda t: t[3]))
-            # Vô số nghiệm: tính đúng mặt/cạnh tối ưu qua tham số hóa
+            # Vô số nghiệm: tính mặt/cạnh tối ưu
+            # Dùng vertices bbox (đã có đủ đỉnh đại diện miền)
             if report and report.multiple_optimal and engine:
                 multi_pts = _compute_optimal_face_3d(
                     report, engine, vertices, c1, c2, c3, maximize)
@@ -569,9 +579,10 @@ class Viz3DMixin:
         ax.set_title(title_txt, fontsize=12, fontweight="bold",
                      color="#e2e8f0", pad=12)
 
-        self._draw_3d_scene(ax, planes, vertices, vv, optimal, maximize, prob,
+        self._draw_3d_scene(ax, planes_draw, vertices, vv, optimal, maximize, prob,
                             status=status, multi_pts=multi_pts,
-                            path_d=path_d, path_b=path_b, report=report)
+                            path_d=path_d, path_b=path_b, report=report,
+                            bbox_artificial=bbox_artificial, bbox_M=bbox_M)
 
         canvas = FigureCanvasTkAgg(fig, master=outer)
         canvas.draw()
@@ -644,22 +655,54 @@ class Viz3DMixin:
                 vertices.append((x, y, z))
         return vertices
 
+    def _add_bounding_box(self, planes: list, prob: ProblemData,
+                          report) -> tuple:
+        has_equality = any(p[4] == "=" for p in planes)
+        if not has_equality:
+            return planes, 0.0, False
+
+        rhs_vals = [abs(float(fr(cons["rhs"])))
+                    for cons in prob.constraints if cons["rhs"] != 0]
+        sol_vals = []
+        if report and report.solution_orig:
+            so = report.solution_orig
+            sol_vals = [abs(float(so.get(i, Fraction(0)))) for i in range(3)]
+        base = max(rhs_vals + sol_vals + [1.0])
+        M = max(base * 6, 20.0)
+
+        planes_bounded = list(planes)
+        signs = prob.var_signs
+
+        axes = [
+            ((1, 0, 0), "x₁"),
+            ((0, 1, 0), "x₂"),
+            ((0, 0, 1), "x₃"),
+        ]
+        for (ax_vec, name), sign in zip(axes, signs):
+            a, b, c = ax_vec
+            if sign == "≥0":
+                planes_bounded.append((a, b, c,  M, "≤", f"{name}≤{M:.4g}"))
+            elif sign == "≤0":
+                planes_bounded.append((a, b, c, -M, "≥", f"{name}≥{-M:.4g}"))
+            else:  # tự do
+                planes_bounded.append((a, b, c,  M, "≤", f"{name}≤{M:.4g}"))
+                planes_bounded.append((a, b, c, -M, "≥", f"{name}≥{-M:.4g}"))
+
+        return planes_bounded, M, True
+
     # ------------------------------------------------------------------ #
     #  Vẽ cảnh 3D                                                         #
     # ------------------------------------------------------------------ #
     def _draw_3d_scene(self, ax, planes, vertices, vv, optimal, maximize, prob,
                        status="optimal", multi_pts=None, path_d=None, path_b=None,
-                       report=None):
+                       report=None, bbox_artificial=False, bbox_M=0.0):
         import numpy as np
         from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
         multi_pts = multi_pts or []
         path_d = path_d or []
         path_b = path_b or []
-        # data_mode có thể là str thuần hoặc tk.StringVar tùy phiên bản app
         mode = self.data_mode.get() if hasattr(self.data_mode, 'get') else self.data_mode
-
-        # Hệ số hàm mục tiêu (float) — dùng xuyên suốt hàm
         c1f = float(prob.obj_coeffs[0])
         c2f = float(prob.obj_coeffs[1])
         c3f = float(prob.obj_coeffs[2])
@@ -697,7 +740,7 @@ class Viz3DMixin:
                 _unb_dy = _sign * _c2 / _norm_c * _arrow_len
                 _unb_dz = _sign * _c3 / _norm_c * _arrow_len
 
-        # Gốc mũi tên = trung tâm đỉnh khả thi (hoặc gốc tọa độ nếu không có đỉnh)
+        # Gốc mũi tên
         if vertices:
             _cx = sum(p[0] for p in vertices) / len(vertices)
             _cy = sum(p[1] for p in vertices) / len(vertices)
@@ -766,6 +809,17 @@ class Viz3DMixin:
                         f" {idx2}", fontsize=7, color="#94a3b8",
                         bbox=dict(boxstyle="round,pad=0.12",
                                   fc="#1e3a5f", ec="#3b82f6", alpha=0.75))
+
+
+        # ── Cảnh báo bounding box nhân tạo ──────────────────────────────
+        if bbox_artificial and status not in ("infeasible", "unbounded"):
+            ax.text2D(0.02, 0.97,
+                      f"⚠ Miền khả thi không bị chặn\n"
+                      f"(đang hiển thị trong bounding box M={bbox_M:.4g})",
+                      transform=ax.transAxes, fontsize=9,
+                      ha="left", va="top", color="#fbbf24",
+                      bbox=dict(boxstyle="round,pad=0.4",
+                                fc="#1c1917", ec="#f59e0b", alpha=0.90))
 
         # ── Trường hợp đặc biệt ─────────────────────────────────────────
 
