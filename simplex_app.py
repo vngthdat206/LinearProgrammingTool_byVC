@@ -174,12 +174,12 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         self.rowconfigure(1, weight=1)
 
         # Thanh tiêu đề trên cùng: tên ứng dụng (h1) + hướng dẫn tóm tắt (h2)
-        header = ttk.Frame(self, style="Header.TFrame", padding=(8, 6))
+        header = ttk.Frame(self, style="Header.TFrame", padding=(12, 5))
         header.grid(row=0, column=0, sticky="nsew")
         header.columnconfigure(0, weight=1)
         ttk.Label(header,
-                  text="Ứng dụng Giải bài toán Quy hoạch tuyến tính (tổng quát)",
-                  style="Header.TLabel").grid(row=0, column=0, sticky="nw")
+                  text="🔢  Ứng dụng Giải Quy hoạch Tuyến tính (tổng quát)",
+                  style="Header.TLabel").grid(row=0, column=0, sticky="w")
 
         # Khung chính: 2 cột
         # Cột 0 (left, cố định): bảng thiết lập + nhập liệu
@@ -638,10 +638,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             self.constraint_rhs[i].insert(0, r)
 
     def _fill_demo_unique_dantzig(self):
-        # Duy nhất nghiệm, tất cả ràng buộc ≤, b_i ≥ 0 → không cần pha 1
-        # max Z = 3x1 + 5x2
-        # 2x1 + x2 ≤ 14,  x1 + 2x2 ≤ 14,  x1 + x2 ≤ 8
-        # → tối ưu duy nhất tại (2, 6), Z* = 36
         self._apply_demo(
             n_vars=2, n_cons=8, sense="max",
             obj=["3", "2"], signs=["≥0", "≥0"],
@@ -658,12 +654,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         )
 
     def _fill_demo_unique_two_phase(self):
-        # Duy nhất nghiệm, có ràng buộc ≥ → cần pha 1 (b_i âm sau chuyển chuẩn)
-        # min Z = 5x1 - 7x2
-        # -4x1 + x2 ≤ -2  (tương đương 4x1 - x2 ≥ 2)
-        #   x1 + x2 ≤  5
-        #  -x1 -  x2 ≤ -1  (tương đương x1 + x2 ≥ 1)
-        # → tối ưu duy nhất tại (2, 3), Z* = -11
         self._apply_demo(
             n_vars=2, n_cons=3, sense="min",
             obj=["5", "-7"], signs=["≥0", "≥0"],
@@ -675,10 +665,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         )
 
     def _fill_demo_unbounded_dantzig(self):
-        # Không giới nội, ràng buộc ≤, b_i ≥ 0 → không cần pha 1
-        # max Z = x1 + x2
-        # -x1 + x2 ≤ 1,  x1 - 2x2 ≤ 2
-        # → tăng x1 tùy ý → Z không bị chặn → unbounded
         self._apply_demo(
             n_vars=2, n_cons=2, sense="max",
             obj=["1", "1"], signs=["≥0", "≥0"],
@@ -689,11 +675,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         )
 
     def _fill_demo_unbounded_two_phase(self):
-        # Không giới nội, có ràng buộc ≥ → pha 1 thành công, pha 2 phát hiện unbounded
-        # min Z = -2x1 - x2
-        # x1 - x2 ≥ 1  (b âm sau chuẩn hóa → cần pha 1)
-        # x1 + x2 ≥ 2
-        # → miền khả thi không bị chặn theo hướng (x1→+∞) với Z→-∞
         self._apply_demo(
             n_vars=2, n_cons=2, sense="min",
             obj=["-2", "-1"], signs=["≥0", "≥0"],
@@ -704,11 +685,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         )
 
     def _fill_demo_multiple_dantzig(self):
-        # Vô số nghiệm, ràng buộc ≤, b_i ≥ 0 → không cần pha 1
-        # max Z = 2x1 + 4x2
-        # x1 + 2x2 ≤ 6,  x1 ≤ 4,  x2 ≤ 3
-        # → đường đồng mức song song với RB1 → cạnh tối ưu từ (0,3) đến (2,2) → vô số nghiệm
-        # Z* = 12
         self._apply_demo(
             n_vars=2, n_cons=3, sense="max",
             obj=["2", "4"], signs=["≥0", "≥0"],
@@ -720,41 +696,31 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         )
 
     def _fill_demo_multiple_two_phase(self):
-        # Vô số nghiệm, có ràng buộc = → tách thành 2 ràng buộc ≤, cần pha 1 bổ trợ x0
-        # min Z = x1 + 2x2
-        # x1 + 2x2 = 8  (đẳng thức → tách thành RB1a: ≤8 và RB1b: ≥8)
-        # x1 + x2  ≤ 6,  x1 ≤ 5
-        # → đường mục tiêu trùng ràng buộc đẳng thức → vô số nghiệm, Z* = 8
         self._apply_demo(
-            n_vars=2, n_cons=3, sense="min",
-            obj=["1", "2"], signs=["≥0", "≥0"],
+            n_vars=2, n_cons=5, sense="max",
+            obj=["1", "-1"], signs=["tự do", "tự do"],
             constraints=[
-                (["1", "2"], "=", "8"),
-                (["1", "1"], "≤", "6"),
-                (["1", "0"], "≤", "5"),
+                (["3", "1"], "≥", "3"),
+                (["1", "2"], "≥", "4"),
+                (["1", "-1"], "≤", "1"),
+                (["1", ""], "≤", "5"),
+                (["", "1"], "≤", "5"),
             ],
         )
 
     def _fill_demo_infeasible_two_phase(self):
-        # Vô nghiệm, pha 1 kết thúc với hàm bổ trợ > 0
-        # min Z = x1 + x2
-        # x1 + x2 ≤ 4,  x1 + x2 ≥ 6  → mâu thuẫn → vô nghiệm
-        # (ràng buộc ≥ → b âm sau chuẩn hóa → cần pha 1)
         self._apply_demo(
-            n_vars=2, n_cons=2, sense="min",
+            n_vars=2, n_cons=3, sense="min",
             obj=["1", "1"], signs=["≥0", "≥0"],
             constraints=[
-                (["1", "1"], "≤", "4"),
-                (["1", "1"], "≥", "6"),
+                (["1", "2"], "≥", "2"),
+                (["3", "2"], "≤", "1"),
+                (["1", "1"], "≥", "1"),
             ],
         )
 
     def _fill_demo_cycle(self):
         # Xoay vòng: ví dụ Beale (1955) — Dantzig lặp vô hạn, Bland thoát được
-        # min Z = -10x1 + 57x2 + 9x3 + 24x4
-        # 1/2 x1 - 11/2 x2 - 5/2 x3 + 9x4 ≤ 0
-        # 1/2 x1 -  3/2 x2 - 1/2 x3 +  x4 ≤ 0
-        #      x1                         ≤ 1
         self._apply_demo(
             n_vars=4, n_cons=3, sense="min",
             obj=["-10", "57", "9", "24"], signs=["≥0"] * 4,
@@ -766,11 +732,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         )
 
     def _fill_demo_cycle_2(self):
-        # Xoay vòng: ví dụ Beale (1955) — Dantzig lặp vô hạn, Bland thoát được
-        # min Z = -10x1 + 57x2 + 9x3 + 24x4
-        # 1/2 x1 - 11/2 x2 - 5/2 x3 + 9x4 = 0
-        # 1/2 x1 -  3/2 x2 - 1/2 x3 +  x4 = 0
-        #      x1                         ≤ 1
         self._apply_demo(
             n_vars=5, n_cons=3, sense="max",
             obj=["3/4", "-20", "1/2", "-6", "0"], signs=["≥0"] * 5,
@@ -1439,20 +1400,20 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         """
         # Mũi tên chính
         ax.annotate("", xy=(sx + dx, sy + dy), xytext=(sx, sy),
-                    arrowprops=dict(arrowstyle="-|>", color="#f87171",
+                    arrowprops=dict(arrowstyle="-|>", color="#C62828",
                                    lw=2.8, mutation_scale=22),
                     zorder=9)
         # Mũi tên phụ — tiếp tục từ 70% đến 130%
         ax.annotate("", xy=(sx + dx*1.50, sy + dy*1.50),
                     xytext=(sx + dx*0.85, sy + dy*0.85),
-                    arrowprops=dict(arrowstyle="-|>", color="#fca5a5",
+                    arrowprops=dict(arrowstyle="-|>", color="#E57373",
                                    lw=1.8, mutation_scale=16),
                     zorder=9)
         ax.text(sx + dx*1.55, sy + dy*1.55,
                 "  → ∞\n(không giới nội)",
-                color="#f87171", fontsize=10, fontweight="bold",
+                color="#C62828", fontsize=10, fontweight="bold",
                 bbox=dict(boxstyle="round,pad=0.3",
-                          fc="#1c1917", ec="#f87171", alpha=0.93),
+                          fc="#FFEBEE", ec="#C62828", alpha=0.95),
                 zorder=10)
 
     # ── Vẽ đoạn tối ưu vô số nghiệm 2D ─────────────────────────────────
@@ -1497,10 +1458,10 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         ax.annotate(
             f"Vô số nghiệm tối ưu\n(toàn bộ đoạn vàng đều tối ưu){opt_z_str}",
             xy=(px0, py0), xytext=(16, 20), textcoords="offset points",
-            fontsize=9, fontweight="bold", color="#fbbf24",
+            fontsize=9, fontweight="bold", color="#E65100",
             bbox=dict(boxstyle="round,pad=0.35",
-                      fc="#1e293b", ec="#f59e0b", alpha=0.96),
-            arrowprops=dict(arrowstyle="->", color="#D97706", lw=1.5),
+                      fc="#FFF8E1", ec="#F57F17", alpha=0.97),
+            arrowprops=dict(arrowstyle="->", color="#E65100", lw=1.5),
             zorder=10)
 
     # ── Vẽ thông báo vô nghiệm 2D ───────────────────────────────────────
@@ -1509,9 +1470,9 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         cy = (ymin + ymax) / 2
         ax.text(cx, cy, "Miền khả thi rỗng\nBài toán VÔ NGHIỆM",
                 ha="center", va="center",
-                fontsize=16, fontweight="bold", color="#f87171",
+                fontsize=16, fontweight="bold", color="#C62828",
                 bbox=dict(boxstyle="round,pad=0.6",
-                          fc="#1c1917", ec="#f87171", alpha=0.94),
+                          fc="#FFEBEE", ec="#C62828", alpha=0.95),
                 zorder=15)
 
     # ── Vẽ đường đi simplex 2D ───────────────────────────────────────────
@@ -1521,36 +1482,36 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         if len(path_d) >= 2:
             xs_d = [p[0] for p in path_d]
             ys_d = [p[1] for p in path_d]
-            ax.plot(xs_d, ys_d, color="#f97316", linewidth=2.4,
+            ax.plot(xs_d, ys_d, color="#E65100", linewidth=2.4,
                     linestyle="-", alpha=0.92,
                     marker="o", markersize=7,
-                    markerfacecolor="#f97316", markeredgecolor="white",
+                    markerfacecolor="#E65100", markeredgecolor="white",
                     markeredgewidth=0.9, zorder=7,
                     label="Đường đi Dantzig")
             for k, (px, py) in enumerate(path_d):
                 ax.annotate(f"D{k}", xy=(px, py),
                             xytext=(5, 5), textcoords="offset points",
-                            fontsize=8, color="#f97316",
+                            fontsize=8, color="#BF360C",
                             bbox=dict(boxstyle="round,pad=0.15",
-                                      fc="#1c1917", ec="#f97316", alpha=0.88),
+                                      fc="#FFF3E0", ec="#E65100", alpha=0.90),
                             zorder=8)
 
         # Bland – xanh cyan, nét đứt
         if len(path_b) >= 2:
             xs_b = [p[0] for p in path_b]
             ys_b = [p[1] for p in path_b]
-            ax.plot(xs_b, ys_b, color="#22d3ee", linewidth=2.2,
+            ax.plot(xs_b, ys_b, color="#00838F", linewidth=2.2,
                     linestyle="--", alpha=0.88,
                     marker="s", markersize=6,
-                    markerfacecolor="#22d3ee", markeredgecolor="white",
+                    markerfacecolor="#00838F", markeredgecolor="white",
                     markeredgewidth=0.8, zorder=7,
                     label="Đường đi Bland")
             for k, (px, py) in enumerate(path_b):
                 ax.annotate(f"B{k}", xy=(px, py),
                             xytext=(-5, 8), textcoords="offset points",
-                            fontsize=8, color="#22d3ee",
+                            fontsize=8, color="#006064",
                             bbox=dict(boxstyle="round,pad=0.15",
-                                      fc="#1c1917", ec="#22d3ee", alpha=0.88),
+                                      fc="#E0F7FA", ec="#00838F", alpha=0.90),
                             zorder=8)
 
         # Nếu Dantzig xoay vòng mà Bland hội tụ: chú thích
@@ -1558,9 +1519,9 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             ax.text(xmin + (xmax-xmin)*0.02, ymax - (ymax-ymin)*0.04,
                     "⚠ Dantzig: xoay vòng (không hội tụ)\n"
                     "✓ Bland: hội tụ đến điểm tối ưu",
-                    fontsize=8, color="#fbbf24", va="top",
+                    fontsize=8, color="#E65100", va="top",
                     bbox=dict(boxstyle="round,pad=0.3",
-                              fc="#1c1917", ec="#fbbf24", alpha=0.92),
+                              fc="#FFF8E1", ec="#E65100", alpha=0.92),
                     zorder=12)
 
     # ── Thêm subtitle 2D cho tiêu đề ────────────────────────────────────
@@ -1573,19 +1534,18 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         }
         if report and report.multiple_optimal and status == "optimal":
             txt = "VÔ SỐ NGHIỆM TỐI ƯU"
-            color = "#fbbf24"
+            color = "#1565C0"
         else:
             txt = status_map.get(status, f"Trạng thái: {status}")
-            color = {"infeasible": "#f87171", "unbounded": "#fb923c",
-                     "cycle": "#fbbf24"}.get(status, "#4ade80")
+            color = {"infeasible": "#C62828", "unbounded": "#E65100",
+                     "cycle": "#F57F17"}.get(status, "#2E7D32")
 
         # Đặt tiêu đề kết hợp
         ax.set_title(
             f"Miền chấp nhận được và đường đồng mức hàm mục tiêu\n"
             f"[{txt}]",
             fontsize=13, fontweight="bold", pad=10,
-            color="#e2e8f0")
-        # Tô màu dòng trạng thái trong title (chỉ có thể dùng 2 màu qua legend workaround)
+            color="#263238")
 
     # ── Panel thông tin v2 (thay _create_info_panel) ────────────────────
     def _create_info_panel_v2(self, parent, prob, vertices, vv, optimal,
@@ -1595,31 +1555,31 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         path_d = path_d or []
         path_b = path_b or []
 
-        info_frame = tk.Frame(parent, bg="#1e293b", bd=0,
-                              highlightthickness=1, highlightbackground="#334155")
+        info_frame = tk.Frame(parent, bg="#F0F4F8", bd=0,
+                              highlightthickness=1, highlightbackground="#B0BEC5")
         info_frame.place(relx=0.987, rely=0.02, anchor="ne", width=320, height=280)
 
-        canvas_i = tk.Canvas(info_frame, bg="#1e293b", highlightthickness=0)
+        canvas_i = tk.Canvas(info_frame, bg="#F0F4F8", highlightthickness=0)
         sb_i = ttk.Scrollbar(info_frame, orient="vertical", command=canvas_i.yview)
         canvas_i.configure(yscrollcommand=sb_i.set)
         sb_i.pack(side="right", fill="y")
         canvas_i.pack(side="left", fill="both", expand=True)
-        inner_i = tk.Frame(canvas_i, bg="#1e293b")
+        inner_i = tk.Frame(canvas_i, bg="#F0F4F8")
         canvas_i.create_window((0, 0), window=inner_i, anchor="nw")
         inner_i.bind("<Configure>",
                      lambda e: canvas_i.configure(
                          scrollregion=canvas_i.bbox("all")))
 
-        def lbl(text, fg="#cbd5e1", font=("Segoe UI", 9)):
-            tk.Label(inner_i, text=text, bg="#1e293b", fg=fg,
+        def lbl(text, fg="#37474F", font=("Segoe UI", 9)):
+            tk.Label(inner_i, text=text, bg="#F0F4F8", fg=fg,
                      font=font, anchor="w", wraplength=295).pack(
                 fill="x", padx=8, pady=1)
 
         def sep():
-            tk.Frame(inner_i, bg="#334155", height=1).pack(
+            tk.Frame(inner_i, bg="#CFD8DC", height=1).pack(
                 fill="x", padx=6, pady=2)
 
-        lbl("Tóm tắt", fg="#e2e8f0", font=("Segoe UI", 10, "bold"))
+        lbl("Tóm tắt", fg="#263238", font=("Segoe UI", 10, "bold"))
         sep()
 
         lbl(f"Kiểu: {'Bài toán Max' if prob.objective_sense == 'max' else 'Bài toán Min'}")
@@ -1628,49 +1588,48 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
         # Trạng thái
         status_map = {
-            "optimal": ("Nghiệm tối ưu", "#4ade80"),
-            "infeasible": ("VÔ NGHIỆM", "#f87171"),
-            "unbounded": ("KHÔNG GIỚI NỘI", "#fb923c"),
-            "cycle": ("Xoay vòng Dantzig", "#fbbf24"),
+            "optimal": ("Nghiệm tối ưu", "#2E7D32"),
+            "infeasible": ("VÔ NGHIỆM", "#C62828"),
+            "unbounded": ("KHÔNG GIỚI NỘI", "#E65100"),
+            "cycle": ("Xoay vòng Dantzig", "#F57F17"),
         }
         if multi_opt:
-            st_text, st_col = "VÔ SỐ NGHIỆM TỐI ƯU", "#fbbf24"
+            st_text, st_col = "VÔ SỐ NGHIỆM TỐI ƯU", "#1565C0"
         else:
-            st_text, st_col = status_map.get(status, (status, "#94a3b8"))
+            st_text, st_col = status_map.get(status, (status, "#546E7A"))
         sep()
         lbl(f"Trạng thái: {st_text}", fg=st_col, font=("Segoe UI", 9, "bold"))
 
         if optimal and status not in ("infeasible", "unbounded"):
             sep()
             if multi_opt:
-                lbl("Điểm tối ưu bất kỳ trên đoạn:", fg="#fbbf24")
-                lbl(f"  ({optimal[0]:.4g}, {optimal[1]:.4g})", fg="#fbbf24")
+                lbl("Điểm tối ưu bất kỳ trên đoạn:", fg="#1565C0")
+                lbl(f"  ({optimal[0]:.4g}, {optimal[1]:.4g})", fg="#1565C0")
             else:
                 lbl(f"Điểm tối ưu: ({optimal[0]:.4g}, {optimal[1]:.4g})",
-                    fg="#fbbf24")
-            lbl(f"Giá trị mục tiêu: {optimal[2]:.4g}", fg="#fbbf24")
+                    fg="#E65100")
 
         # Đường đi simplex
         if path_d or path_b:
             sep()
-            lbl("Đường đi đơn hình:", fg="#94a3b8",
+            lbl("Đường đi đơn hình:", fg="#546E7A",
                 font=("Segoe UI", 8, "bold"))
             if path_d:
-                lbl(f"Dantzig: {len(path_d)} bước", fg="#f97316",
+                lbl(f"Dantzig: {len(path_d)} bước", fg="#E65100",
                     font=("Segoe UI", 8))
                 for k, (px, py) in enumerate(path_d):
                     lbl(f"  D{k}: ({px:.3g}, {py:.3g})",
-                        fg="#fed7aa", font=("Consolas", 8))
+                        fg="#BF360C", font=("Consolas", 8))
             if path_b:
-                lbl(f"Bland: {len(path_b)} bước", fg="#22d3ee",
+                lbl(f"Bland: {len(path_b)} bước", fg="#00838F",
                     font=("Segoe UI", 8))
                 for k, (px, py) in enumerate(path_b):
                     lbl(f"  B{k}: ({px:.3g}, {py:.3g})",
-                        fg="#a5f3fc", font=("Consolas", 8))
+                        fg="#006064", font=("Consolas", 8))
 
         sep()
-        lbl("Kéo chuột trái để pan", fg="#64748b")
-        lbl("Lăn chuột để zoom", fg="#64748b")
+        lbl("Kéo chuột trái để pan", fg="#90A4AE")
+        lbl("Lăn chuột để zoom", fg="#90A4AE")
 
 
     def _create_visualization_window(self):
@@ -1687,43 +1646,45 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 top.attributes("-zoomed", True)
             except Exception:
                 pass
-        top.configure(bg="#0f172a")
+        top.configure(bg="#F0F4F8")
         top.columnconfigure(0, weight=1)
         top.rowconfigure(0, weight=1)
         top.protocol("WM_DELETE_WINDOW", top.destroy)
         return top
 
     def _create_figure(self):
-        # Khởi tạo Figure và Axes matplotlib theo phong cách tối, đồng bộ với cửa sổ 3D.
+        # Khởi tạo Figure và Axes matplotlib theo phong cách sáng, dễ nhìn.
         from matplotlib.figure import Figure
         fig = Figure(figsize=(15.6, 9.2), dpi=110)
-        fig.patch.set_facecolor("#0f172a")
-        fig.subplots_adjust(left=0.055, right=0.985, top=0.94, bottom=0.09)
+        fig.patch.set_facecolor("#F8F9FA")
+        fig.subplots_adjust(left=0.055, right=0.985, top=0.915, bottom=0.09)
         ax = fig.add_subplot(111)
-        ax.set_facecolor("#111827")
+        ax.set_facecolor("#FFFFFF")
         ax.set_axisbelow(True)
-        ax.grid(True, linestyle="--", linewidth=0.8, alpha=0.18, color="#64748b")
+        ax.grid(True, linestyle="--", linewidth=0.7, alpha=0.45, color="#BBCDD8")
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
-        ax.spines["left"].set_color("#475569")
-        ax.spines["bottom"].set_color("#475569")
-        ax.tick_params(colors="#cbd5e1", labelsize=9)
+        ax.spines["left"].set_color("#90A4AE")
+        ax.spines["bottom"].set_color("#90A4AE")
+        ax.tick_params(colors="#37474F", labelsize=9)
         return fig, ax
 
     def _plot_feasible_region(self, ax, X, Y, mask):
-        # Tô vùng chấp nhận được với lớp màu dịu và viền mềm (dark theme).
+        # Tô vùng chấp nhận được với lớp màu dịu trên nền sáng.
         z = mask.astype(float)
         ax.contourf(
             X, Y, z,
             levels=[0.5, 1.5],
-            colors=["#0ea5e9"],
-            alpha=0.13,
+            colors=["#90CAF9"],
+            alpha=0.22,
             zorder=0,
         )
 
     def _plot_constraints(self, ax, halfplanes, xmin, xmax, ymin, ymax):
-        # Vẽ từng đường biên ràng buộc, màu xoay vòng, dark theme.
-        palette = ["#38bdf8","#a78bfa","#34d399","#fb923c","#f87171","#22d3ee"]
+        # Vẽ từng đường biên ràng buộc — màu xoay vòng Set3-inspired, đủ 12 màu phân biệt.
+        # Không vẽ nhãn inline; nhãn hiển thị qua legend.
+        palette = ["#4e9ac7","#e8604a","#5cb87a","#e8b820","#b07fbd","#e07a28",
+                   "#d96b8a","#8ab550","#b08060","#7a7a7a","#d4a800","#5ba8c0"]
         seen = set()
         for idx, (a, b, c, sense, label) in enumerate(halfplanes):
             color = palette[idx % len(palette)]
@@ -1731,16 +1692,11 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             if len(pts) < 2: continue
             pts = sorted(pts, key=lambda p: (p[0], p[1]))
             (x1,y1),(x2,y2) = pts[0], pts[-1]
-            ax.plot([x1,x2],[y1,y2], color=color, linewidth=2.4,
-                    alpha=0.90, solid_capstyle="round", zorder=2)
+            ax.plot([x1,x2],[y1,y2], color=color, linewidth=2.2,
+                    alpha=0.92, solid_capstyle="round", zorder=2,
+                    label=label if label not in seen else "_nolegend_")
             if label not in seen:
                 seen.add(label)
-                mx,my = (x1+x2)/2,(y1+y2)/2
-                dx,dy = 0.012*(xmax-xmin), 0.012*(ymax-ymin)
-                ax.text(mx+dx, my+dy, label, fontsize=9, color=color,
-                        weight="bold",
-                        bbox=dict(boxstyle="round,pad=0.2",
-                                  fc="#0f172a", ec=color, alpha=0.88), zorder=3)
 
     def _plot_objective_contours(self, ax, c1, c2, vv, xmin, xmax, ymin, ymax, maximize):
         # Vẽ đường đồng mức hàm mục tiêu — dark theme.
@@ -1758,68 +1714,66 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             pts = sorted(pts, key=lambda p:(p[0],p[1]))
             (x1,y1),(x2,y2) = pts[0],pts[-1]
             is_best = abs(lv-z_best) < 1e-9
-            ax.plot([x1,x2],[y1,y2], color="#60a5fa",
-                    linewidth=2.8 if is_best else 1.6,
+            ax.plot([x1,x2],[y1,y2], color="#1565C0",
+                    linewidth=2.6 if is_best else 1.4,
                     linestyle="-" if is_best else "--",
-                    alpha=0.80 if is_best else 0.30, zorder=1.5)
+                    alpha=0.85 if is_best else 0.30, zorder=1.5)
             if is_best:
                 tx,ty = (x1+x2)/2,(y1+y2)/2
                 ax.text(tx, ty,
                         f"  z = {fmt_num(Fraction(str(lv)), self.data_mode)}",
-                        color="#e2e8f0", fontsize=9, weight="bold",
-                        bbox=dict(boxstyle="round,pad=0.2",
-                                  fc="#1e293b", ec="#60a5fa", alpha=0.95), zorder=4)
+                        color="#0D47A1", fontsize=9, weight="bold",
+                        bbox=dict(boxstyle="round,pad=0.25",
+                                  fc="#E3F2FD", ec="#1565C0", alpha=0.95), zorder=4)
 
     def _plot_vertices(self, ax, vv, maximize):
-        # Vẽ đa giác đỉnh khả thi và đánh số từng đỉnh — dark theme.
+        # Vẽ đa giác đỉnh khả thi và đánh số từng đỉnh — light theme.
         if not vv: return
         pts = list(vv)
         cx = sum(p[0] for p in pts)/len(pts)
         cy = sum(p[1] for p in pts)/len(pts)
         pts.sort(key=lambda t: math.atan2(t[1]-cy, t[0]-cx))
         ax.fill([p[0] for p in pts],[p[1] for p in pts],
-                color="#0f172a", alpha=0.22, zorder=1)
+                color="#BBDEFB", alpha=0.30, zorder=1)
         ax.plot([p[0] for p in pts]+[pts[0][0]],
                 [p[1] for p in pts]+[pts[0][1]],
-                color="#60a5fa", linewidth=1.2, linestyle=":", alpha=0.55, zorder=2.5)
+                color="#1565C0", linewidth=1.1, linestyle=":", alpha=0.50, zorder=2.5)
         for idx,(vx,vy,val) in enumerate(pts,start=1):
-            ax.scatter([vx],[vy], s=42, color="#3B82F6",
-                       edgecolors="#0f172a", linewidths=1.0, zorder=5)
+            ax.scatter([vx],[vy], s=42, color="#1976D2",
+                       edgecolors="#FFFFFF", linewidths=1.2, zorder=5)
             ax.annotate(f"{idx}", xy=(vx,vy), xytext=(6,6),
-                        textcoords="offset points", fontsize=9, color="#e2e8f0",
+                        textcoords="offset points", fontsize=9, color="#0D47A1",
                         bbox=dict(boxstyle="circle,pad=0.20",
-                                  fc="#1e293b", ec="#60a5fa", alpha=0.96), zorder=6)
+                                  fc="#E3F2FD", ec="#1565C0", alpha=0.96), zorder=6)
 
     def _plot_optimal_point(self, ax, optimal, maximize):
-        # Đánh dấu điểm tối ưu bằng hình sao vàng lớn — dark theme.
+        # Đánh dấu điểm tối ưu bằng hình sao vàng lớn — light theme.
         if optimal is None: return
         bx,by,bz = optimal
-        ax.scatter([bx],[by], s=220, marker="*", color="#F59E0B",
-                   edgecolors="#0f172a", linewidths=1.2, zorder=7)
+        ax.scatter([bx],[by], s=240, marker="*", color="#E65100",
+                   edgecolors="#FFFFFF", linewidths=1.2, zorder=7)
         ax.annotate(
-            f"Điểm tối ưu\n({bx:.3g}, {by:.3g})\nz = {bz:.3g}",
+            f"Điểm tối ưu\n({bx:.3g}, {by:.3g})",
             xy=(bx,by), xytext=(14,18), textcoords="offset points",
-            fontsize=10, fontweight="bold",
+            fontsize=10, fontweight="bold", color="#BF360C",
             bbox=dict(boxstyle="round,pad=0.38",
-                      fc="#1e293b", ec="#f59e0b", alpha=0.97),
-            arrowprops=dict(arrowstyle="->", color="#D97706", lw=1.5), zorder=8)
+                      fc="#FFF3E0", ec="#E65100", alpha=0.97),
+            arrowprops=dict(arrowstyle="->", color="#E65100", lw=1.5), zorder=8)
 
     def _configure_axes(self, ax, xmin, xmax, ymin, ymax):
-        # Thiết lập tiêu đề, nhãn trục, trục tọa độ, legend — dark theme.
+        # Thiết lập tiêu đề, nhãn trục, trục tọa độ, legend — light theme.
         ax.set_xlim(xmin,xmax); ax.set_ylim(ymin,ymax)
         ax.set_aspect("auto", adjustable="box")
-        ax.set_xlabel("x₁", fontsize=12, fontweight="bold", color="#cbd5e1")
-        ax.set_ylabel("x₂", fontsize=12, fontweight="bold", color="#cbd5e1")
-        ax.set_title("Miền chấp nhận được và đường đồng mức hàm mục tiêu",
-                     fontsize=14, fontweight="bold", pad=10, color="#e2e8f0")
-        ax.axhline(0,color="#475569",linewidth=1.1,alpha=0.7,zorder=0.5)
-        ax.axvline(0,color="#475569",linewidth=1.1,alpha=0.7,zorder=0.5)
+        ax.set_xlabel("x₁", fontsize=12, fontweight="bold", color="#37474F")
+        ax.set_ylabel("x₂", fontsize=12, fontweight="bold", color="#37474F")
+        ax.axhline(0,color="#90A4AE",linewidth=1.1,alpha=0.7,zorder=0.5)
+        ax.axvline(0,color="#90A4AE",linewidth=1.1,alpha=0.7,zorder=0.5)
         hs, ls = ax.get_legend_handles_labels()
         if hs:
             ax.legend(hs,ls,loc="upper left",frameon=True,fontsize=9,
-                      title="Ràng buộc",title_fontsize=10,fancybox=True,
-                      shadow=False,facecolor="#1e293b",edgecolor="#475569",
-                      labelcolor="#cbd5e1",title_fontproperties={"weight":"bold"})
+                      title="Ràng buộc",fancybox=True,
+                      shadow=False,facecolor="#FFFFFF",edgecolor="#B0BEC5",
+                      labelcolor="#37474F",title_fontproperties={"weight":"bold","size":10})
 
     def _create_control_button(self, parent, text, color, hover_color, command):
         # Tạo nút tkinter với hiệu ứng hover đơn giản (đổi màu nền khi rê chuột).
@@ -1867,10 +1821,10 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         canvas.mpl_connect("scroll_event",on_scroll)
 
     def _create_zoom_controls(self, parent, ax, canvas, initial_xlim, initial_ylim):
-        # Tạo thanh điều khiển zoom ở góc dưới: nút "+" / "−" / "reset", dark theme đồng bộ 3D.
-        ctrl = tk.Frame(parent, bg="#1e293b")
+        # Tạo thanh điều khiển zoom ở góc dưới: nút "+" / "−" / "reset", light theme.
+        ctrl = tk.Frame(parent, bg="#E8EEF2")
         ctrl.place(relx=0.0, rely=1.0, anchor="sw", relwidth=1.0)
-        btn_frame = tk.Frame(ctrl, bg="#1e293b")
+        btn_frame = tk.Frame(ctrl, bg="#E8EEF2")
         btn_frame.pack(side="left", padx=8, pady=4)
         def zi():
             x1,x2=ax.get_xlim(); y1,y2=ax.get_ylim()
@@ -1885,32 +1839,31 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         def rst():
             ax.set_xlim(initial_xlim); ax.set_ylim(initial_ylim)
             self._request_canvas_redraw(canvas)
-        self._create_control_button(btn_frame,"+","#3B82F6","#2563EB",zi)
-        self._create_control_button(btn_frame,"−","#F59E0B","#D97706",zo)
-        self._create_control_button(btn_frame,"reset","#6EBF8B","#4DAA72",rst)
+        self._create_control_button(btn_frame,"+","#1976D2","#1565C0",zi)
+        self._create_control_button(btn_frame,"−","#F57C00","#E65100",zo)
+        self._create_control_button(btn_frame,"reset","#388E3C","#2E7D32",rst)
         tk.Label(ctrl, text="Kéo chuột trái để di chuyển · Lăn chuột để zoom",
-                 bg="#1e293b", fg="#94a3b8", font=("Segoe UI",9)).pack(
+                 bg="#E8EEF2", fg="#546E7A", font=("Segoe UI",9)).pack(
             side="left", padx=10, pady=6)
 
     def _create_info_panel(self, parent, prob, vertices, vv, optimal, maximize):
-        # Bảng tóm tắt nhỏ ở góc trên phải đồ thị, dark theme đồng bộ 3D.
-        info_frame = tk.Frame(parent, bg="#1e293b", bd=0,
-                              highlightthickness=1, highlightbackground="#334155")
+        # Bảng tóm tắt nhỏ ở góc trên phải đồ thị, light theme.
+        info_frame = tk.Frame(parent, bg="#F0F4F8", bd=0,
+                              highlightthickness=1, highlightbackground="#B0BEC5")
         info_frame.place(relx=0.987, rely=0.02, anchor="ne", width=320, height=182)
-        title = tk.Label(info_frame, text="Tóm tắt", bg="#1e293b",
-                         fg="#e2e8f0", font=("Segoe UI",11,"bold"))
+        title = tk.Label(info_frame, text="Tóm tắt", bg="#F0F4F8",
+                         fg="#263238", font=("Segoe UI",11,"bold"))
         title.pack(anchor="w", padx=10, pady=(8,2))
-        text = tk.Text(info_frame, wrap="word", bg="#1e293b", fg="#cbd5e1",
+        text = tk.Text(info_frame, wrap="word", bg="#F0F4F8", fg="#37474F",
                        bd=0, font=("Segoe UI",9), height=8, padx=10, pady=6,
-                       insertbackground="#e2e8f0")
+                       insertbackground="#263238")
         text.pack(fill="both", expand=True)
         lines = [
             f"Kiểu: {'Bài toán Max' if prob.objective_sense=='max' else 'Bài toán Min'}",
             f"Số ràng buộc: {len(prob.constraints)}",
             f"Số đỉnh khả thi: {len(vertices)}",
         ]
-        if optimal: lines += [f"Điểm tối ưu: ({optimal[0]:.3g}, {optimal[1]:.3g})",
-                               f"Giá trị mục tiêu: {optimal[2]:.3g}"]
+        if optimal: lines += [f"Điểm tối ưu: ({optimal[0]:.3g}, {optimal[1]:.3g})"]
         else: lines.append("Chưa tìm được miền khả thi.")
         lines += ["Kéo chuột trái để pan.", "Dùng nút hoặc lăn chuột để zoom."]
         text.insert("1.0", "\n".join(lines))
@@ -2096,16 +2049,18 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             else:  # tự do: a_i, b_i >= 0 (không phải x_i)
                 nonneg_vars.append(f"a{i+1}")
                 nonneg_vars.append(f"b{i+1}")
-        nonneg_vars += slack_names
-        # Thêm biến độ nhiễu
-        art_names_list = [engine.all_names[a] for a in engine.artificial_vars]
-        nonneg_vars += art_names_list
         # Deduplicate giữ thứ tự
         seen_nonneg = set(); nonneg_unique = []
         for v in nonneg_vars:
             if v not in seen_nonneg: seen_nonneg.add(v); nonneg_unique.append(v)
         lines.append(f"      {', '.join(nonneg_unique)} ≥ 0")
         lines.append("    }")
+        lines += [
+            "",
+            f"+ Các biến bù {', '.join(slack_names)}",
+            f"  được thêm vào từng ràng buộc",
+            f"  để tạo cơ sở ban đầu cho bảng từ vựng.",
+        ]
         return "\n".join(lines)
 
     def _dict_lines(self, snapshot):
