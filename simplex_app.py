@@ -1192,7 +1192,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         else:
             xmin, xmax, ymin, ymax = -5., 5., -5., 5.
         xr, yr = xmax-xmin, ymax-ymin
-        return xmin-0.22*xr, xmax+0.22*xr, ymin-0.22*yr, ymax+0.22*yr
+        return xmin-0.32*xr, xmax+0.32*xr, ymin-0.30*yr, ymax+0.30*yr
 
     def _create_meshgrid(self, xmin, xmax, ymin, ymax):
         # Tạo lưới 220×220 điểm bao phủ khung nhìn để tô màu miền chấp nhận bằng contourf.
@@ -1780,18 +1780,19 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
     def _configure_axes(self, ax, xmin, xmax, ymin, ymax):
         # Thiết lập tiêu đề, nhãn trục, trục tọa độ, legend — light theme.
-        ax.set_xlim(xmin,xmax); ax.set_ylim(ymin,ymax)
+        ax.set_xlim(xmin, xmax)
+        ax.set_ylim(ymin, ymax)
         ax.set_aspect("auto", adjustable="box")
         ax.set_xlabel("x₁", fontsize=12, fontweight="bold", color="#37474F")
         ax.set_ylabel("x₂", fontsize=12, fontweight="bold", color="#37474F")
-        ax.axhline(0,color="#90A4AE",linewidth=1.1,alpha=0.7,zorder=0.5)
-        ax.axvline(0,color="#90A4AE",linewidth=1.1,alpha=0.7,zorder=0.5)
+        ax.axhline(0, color="#90A4AE", linewidth=1.1, alpha=0.7, zorder=0.5)
+        ax.axvline(0, color="#90A4AE", linewidth=1.1, alpha=0.7, zorder=0.5)
         hs, ls = ax.get_legend_handles_labels()
         if hs:
-            ax.legend(hs,ls,loc="upper left",frameon=True,fontsize=9,
-                      title="Ràng buộc",fancybox=True,
-                      shadow=False,facecolor="#FFFFFF",edgecolor="#B0BEC5",
-                      labelcolor="#37474F",title_fontproperties={"weight":"bold","size":10})
+            ax.legend(hs, ls, loc="upper left", frameon=True, fontsize=9,
+                    title="Ràng buộc", fancybox=True,
+                    shadow=False, facecolor="#FFFFFF", edgecolor="#B0BEC5",
+                    labelcolor="#37474F", title_fontproperties={"weight": "bold", "size": 10})
 
     def _create_control_button(self, parent, text, color, hover_color, command):
         # Tạo nút tkinter với hiệu ứng hover đơn giản (đổi màu nền khi rê chuột).
