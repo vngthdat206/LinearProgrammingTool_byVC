@@ -2232,18 +2232,32 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 std_to_xname[mapping[0][0]] = xn   # a_i → x_i
                 std_to_xname[mapping[1][0]] = xn   # b_i → x_i
 
-        # ── Tìm các biến phi cơ sở bị gán 0 (trừ các biến tự do) ───────────
+        # ── Phân loại biến phi cơ sở ────────────────────────────────────────
         basis_set = set(snapshot.basis)
+        free_set_vars = set(free_vars)
+
+        # Biến phi cơ sở bị gán = 0 (không phải tham số tự do, không phải aux/art)
         fixed_zero_names = [
             snapshot.all_names[j]
             for j in range(len(snapshot.all_names))
             if j not in basis_set
-            and j not in set(free_vars)
+            and j not in free_set_vars
             and (aux_idx is None or j != aux_idx)
             and j not in art_set
         ]
 
+        # Kiểm tra có biến tự do gốc (a_i/b_i) nào trong free_vars không
+        # để thêm dòng "Mà ta lại có: a_i - b_i = x_i"
+        has_split_var = any(
+            len(engine.variable_mapping[orig_idx]) == 2
+            for orig_idx in range(len(engine.variable_mapping))
+            for j, _ in engine.variable_mapping[orig_idx]
+            if j in free_set_vars
+        )
+
         # ── Dòng mở đầu ─────────────────────────────────────────────────────
+        # "trừ X" = các tham số tự do giữ lại (free_names)
+        # "Y = 0" = các biến phi cơ sở còn lại bị gán 0
         if len(free_vars) == 1:
             fixed_str = ", ".join(fixed_zero_names) + " = 0" if fixed_zero_names else ""
             lines = [
@@ -2259,6 +2273,18 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 f"  Cho các biến không cơ sở (trừ {names_str}) bằng 0: {fixed_str}",
                 f"  Khi đó:",
             ]
+        if has_split_var:
+            # Liệt kê các cặp a_i - b_i = x_i liên quan
+            split_pairs = []
+            for orig_idx, mapping in enumerate(engine.variable_mapping):
+                if len(mapping) == 2:
+                    j1, j2 = mapping[0][0], mapping[1][0]
+                    if j1 in free_set_vars or j2 in free_set_vars:
+                        a_nm = snapshot.all_names[j1]
+                        b_nm = snapshot.all_names[j2]
+                        split_pairs.append(f"{a_nm} - {b_nm} = x{orig_idx+1}")
+            if split_pairs:
+                lines.append(f"  Mà ta lại có: {'; '.join(split_pairs)}.")
 
         # ── Giá trị mục tiêu ─────────────────────────────────────────────────
         lines.append(f"    z = {fmt_num(snapshot.obj_const, mode)}")
