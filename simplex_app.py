@@ -1602,12 +1602,23 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
         if optimal and status not in ("infeasible", "unbounded"):
             sep()
+            report = self.last_report
+            if report and report.objective_orig is not None:
+                z_val = float(report.objective_orig)
+            else:
+                z_val = optimal[2]
+            z_label = "Z" if prob.objective_sense == "min" else "Z"
+            z_str = f"{z_val:.4g}"
             if multi_opt:
                 lbl("Điểm tối ưu bất kỳ trên đoạn:", fg="#1565C0")
                 lbl(f"  ({optimal[0]:.4g}, {optimal[1]:.4g})", fg="#1565C0")
+                lbl(f"Giá trị tối ưu: {z_label} = {z_str}",
+                    fg="#1565C0", font=("Segoe UI", 9, "bold"))
             else:
                 lbl(f"Điểm tối ưu: ({optimal[0]:.4g}, {optimal[1]:.4g})",
                     fg="#E65100")
+                lbl(f"Giá trị tối ưu: {z_label} = {z_str}",
+                    fg="#2E7D32", font=("Segoe UI", 9, "bold"))
 
         # Đường đi simplex
         if path_d or path_b:
@@ -2199,7 +2210,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return " ".join(parts).strip() if parts else "0"
 
     def _format_multiple_optimal_family(self, engine, snapshot, report):
-        # Tạo chuỗi mô tả họ vô số nghiệm tối ưu.
         mode = self.data_mode
         free_vars = report.multiple_optimal_vars or []
         if not free_vars:
@@ -2207,30 +2217,55 @@ class SimplexApp(Viz3DMixin, tk.Tk):
 
         aux_idx = getattr(engine, "phase1_aux_var_index", None)
         art_set = set(engine.artificial_vars)
-
-        # ── Tên các biến tự do ───────────────────────────────────────────
         free_names = [snapshot.all_names[j] for j in free_vars]
 
-        # ── Dòng mở đầu ─────────────────────────────────────────────────
+        # ── Map: std_var_index → tên hiển thị ưu tiên x_i ──────────────────
+        # Với biến ≥0/≤0 (mapping 1 phần tử): std j → "x{i+1}"
+        # Với biến tự do gốc (mapping 2 phần tử: a_i - b_i):
+        #   cả a_i lẫn b_i đều map về "x{i+1}" để hiển thị gộp
+        std_to_xname: Dict[int, str] = {}
+        for orig_idx, mapping in enumerate(engine.variable_mapping):
+            xn = f"x{orig_idx+1}"
+            if len(mapping) == 1:
+                std_to_xname[mapping[0][0]] = xn
+            elif len(mapping) == 2:
+                std_to_xname[mapping[0][0]] = xn   # a_i → x_i
+                std_to_xname[mapping[1][0]] = xn   # b_i → x_i
+
+        # ── Tìm các biến phi cơ sở bị gán 0 (trừ các biến tự do) ───────────
+        basis_set = set(snapshot.basis)
+        fixed_zero_names = [
+            snapshot.all_names[j]
+            for j in range(len(snapshot.all_names))
+            if j not in basis_set
+            and j not in set(free_vars)
+            and (aux_idx is None or j != aux_idx)
+            and j not in art_set
+        ]
+
+        # ── Dòng mở đầu ─────────────────────────────────────────────────────
         if len(free_vars) == 1:
+            fixed_str = ", ".join(fixed_zero_names) + " = 0" if fixed_zero_names else ""
             lines = [
                 f"  Do hệ số trước {free_names[0]} bằng 0. Bài toán có vô số nghiệm.",
-                f"  Cho các biến không cơ sở (trừ {free_names[0]}) bằng 0:",
+                f"  Cho các biến không cơ sở (trừ {free_names[0]}) bằng 0: {fixed_str}",
+                f"  Khi đó:",
             ]
         else:
             names_str = ", ".join(free_names)
+            fixed_str = ", ".join(fixed_zero_names) + " = 0" if fixed_zero_names else ""
             lines = [
                 f"  Do hệ số trước {names_str} đều bằng 0. Bài toán có vô số nghiệm.",
-                f"  Cho các biến không cơ sở (trừ {names_str}) bằng 0:",
+                f"  Cho các biến không cơ sở (trừ {names_str}) bằng 0: {fixed_str}",
+                f"  Khi đó:",
             ]
 
-        # ── Giá trị mục tiêu ─────────────────────────────────────────────
-        lines.append("")
+        # ── Giá trị mục tiêu ─────────────────────────────────────────────────
         lines.append(f"    z = {fmt_num(snapshot.obj_const, mode)}")
 
-        # ── Biến cơ sở biểu diễn theo các biến tự do ────────────────────
+        # ── Biến cơ sở biểu diễn theo các biến tự do ────────────────────────
+        # Với biến tự do gốc (a_i, b_i): gộp cả hai hàng thành x_i = a_i - b_i
         def row_expr_multi(ri):
-            """Biểu diễn biến cơ sở ri theo TẤT CẢ biến tự do."""
             terms = []
             for fv in free_vars:
                 coef = snapshot.rows[ri].get(fv, Fraction(0))
@@ -2238,181 +2273,242 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                     terms.append((coef, snapshot.all_names[fv]))
             return self._linear_text(snapshot.rhs[ri], terms, mode)
 
+        # Gộp các hàng cùng map về một x_i (trường hợp a_i - b_i)
+        # Key: xname → (const, {fv: coef})
+        xname_rows: Dict[str, tuple] = {}
         for ri, b in enumerate(snapshot.basis):
             if b in art_set:
                 continue
             if aux_idx is not None and b == aux_idx:
                 continue
-            b_name = snapshot.all_names[b]
-            lines.append(f"    {b_name} = {row_expr_multi(ri)}")
+            xn = std_to_xname.get(b, snapshot.all_names[b])
+            if xn not in xname_rows:
+                # Tìm coef của std b trong mapping để biết dấu (+1 cho a_i, -1 cho b_i)
+                sign = Fraction(1)
+                for orig_idx, mapping in enumerate(engine.variable_mapping):
+                    if len(mapping) == 2:
+                        if mapping[0][0] == b:
+                            sign = Fraction(1)   # a_i
+                            break
+                        if mapping[1][0] == b:
+                            sign = Fraction(-1)  # b_i
+                            break
+                xname_rows[xn] = (sign * snapshot.rhs[ri],
+                                  {fv: sign * snapshot.rows[ri].get(fv, Fraction(0))
+                                   for fv in free_vars})
+            else:
+                # Cộng thêm hàng thứ hai (b_i, sign = -1)
+                sign = Fraction(-1)
+                existing_const, existing_fv = xname_rows[xn]
+                new_const = existing_const + sign * snapshot.rhs[ri]
+                new_fv = dict(existing_fv)
+                for fv in free_vars:
+                    new_fv[fv] = new_fv.get(fv, Fraction(0)) + sign * snapshot.rows[ri].get(fv, Fraction(0))
+                xname_rows[xn] = (new_const, new_fv)
 
-        # ── Điều kiện khả thi của từng biến tự do ───────────────────────
-        # Với mỗi biến cơ sở b_i: b_i = rhs[i] + Σ_j col_j[i]*t_j >= 0
-        # khi các biến tự do khác = 0, suy ra điều kiện 1 chiều cho từng t_j.
-        # Nhưng khi có nhiều biến tự do, điều kiện phụ thuộc lẫn nhau.
-        # Ta trình bày điều kiện đầy đủ: b_i >= 0 cho tất cả i.
+        # In theo thứ tự xuất hiện trong basis (dùng xname đã gộp, tránh in trùng)
+        printed_xnames = set()
+        for ri, b in enumerate(snapshot.basis):
+            if b in art_set:
+                continue
+            if aux_idx is not None and b == aux_idx:
+                continue
+            xn = std_to_xname.get(b, snapshot.all_names[b])
+            if xn in printed_xnames:
+                continue
+            printed_xnames.add(xn)
+            if xn in xname_rows:
+                const_v, fv_coefs = xname_rows[xn]
+                terms = [(fv_coefs[fv], snapshot.all_names[fv])
+                         for fv in free_vars if fv_coefs.get(fv, Fraction(0)) != 0]
+                lines.append(f"    {xn} = {self._linear_text(const_v, terms, mode)}")
+            else:
+                lines.append(f"    {xn} = {row_expr_multi(ri)}")
+
+        # ── Điều kiện khả thi ────────────────────────────────────────────────
         lines.append("")
         lines.append("  Để nghiệm khả thi (các biến cơ sở ≥ 0), cần:")
-
+        printed_cond = set()
         for ri, b in enumerate(snapshot.basis):
             if b in art_set:
                 continue
             if aux_idx is not None and b == aux_idx:
                 continue
-            b_name = snapshot.all_names[b]
-            # Kiểm tra hàng này có phụ thuộc biến tự do không
-            has_free = any(snapshot.rows[ri].get(fv, Fraction(0)) != 0
-                           for fv in free_vars)
+            xn = std_to_xname.get(b, snapshot.all_names[b])
+            if xn in printed_cond:
+                continue
+            printed_cond.add(xn)
+            has_free = any(snapshot.rows[ri].get(fv, Fraction(0)) != 0 for fv in free_vars)
             if not has_free:
                 continue
-            # In: b_name = rhs + ... >= 0
-            expr = row_expr_multi(ri)
-            lines.append(f"    {b_name} = {expr} ≥ 0")
+            if xn in xname_rows:
+                const_v, fv_coefs = xname_rows[xn]
+                terms = [(fv_coefs[fv], snapshot.all_names[fv])
+                         for fv in free_vars if fv_coefs.get(fv, Fraction(0)) != 0]
+                expr = self._linear_text(const_v, terms, mode)
+            else:
+                expr = row_expr_multi(ri)
+            lines.append(f"    {xn} = {expr} ≥ 0")
 
-        # ── Nếu chỉ có 1 biến tự do: rút gọn thành khoảng [lower, upper] ──
+        # ── 1 biến tự do: rút gọn khoảng ────────────────────────────────────
         if len(free_vars) == 1:
             param_idx = free_vars[0]
             param_name = free_names[0]
             param_conditions = []
+            seen_src = set()
             for ri, b in enumerate(snapshot.basis):
                 if aux_idx is not None and b == aux_idx:
                     continue
-                coef = snapshot.rows[ri].get(param_idx, Fraction(0))
-                rhs_val = snapshot.rhs[ri]
+                xn = std_to_xname.get(b, snapshot.all_names[b])
+                if xn in seen_src:
+                    continue
+                if xn in xname_rows:
+                    _, fv_coefs = xname_rows[xn]
+                    coef = fv_coefs.get(param_idx, Fraction(0))
+                    const_v = xname_rows[xn][0]
+                else:
+                    coef = snapshot.rows[ri].get(param_idx, Fraction(0))
+                    const_v = snapshot.rhs[ri]
                 if coef == 0:
                     continue
-                bound = -rhs_val / coef
+                seen_src.add(xn)
+                bound = -const_v / coef
                 if coef > 0:
-                    param_conditions.append(("≥", bound, snapshot.all_names[b]))
+                    param_conditions.append(("≥", bound, xn))
                 else:
-                    param_conditions.append(("≤", bound, snapshot.all_names[b]))
-            param_conditions.append(("≥", Fraction(0), f"{param_name} ≥ 0"))
+                    param_conditions.append(("≤", bound, xn))
+            
             for cond_type, bound_val, src_name in param_conditions:
-                if src_name == f"{param_name} ≥ 0":
-                    lines.append(f"    {param_name} ≥ 0  (bản thân biến phi cơ sở)")
-                else:
-                    lines.append(f"    {param_name} {cond_type} {fmt_num(bound_val, mode)}  "
-                                 f"(từ {src_name} ≥ 0)")
-            lowers = [b for (t, b, *_) in param_conditions if t == "≥"]
-            uppers = [b for (t, b, *_) in param_conditions if t == "≤"]
-            lower = max(lowers) if lowers else Fraction(0)
+                lines.append(f"    {param_name} {cond_type} {fmt_num(bound_val, mode)}  "
+                            f"(từ {src_name} ≥ 0)")
+            lines.append("  Thêm điều kiện của các biến không cơ sở:")
+            lines.append(f"    {param_name} ≥ 0")
+            
+            lowers = [bv for (t, bv, *_) in param_conditions if t == "≥"]
+            uppers = [bv for (t, bv, *_) in param_conditions if t == "≤"]
+            lower = max(lowers + [Fraction(0)]) if lowers else Fraction(0)
             if uppers:
                 upper = min(uppers)
                 lines.append(f"  → Điều kiện tham số rút gọn: "
-                             f"{fmt_num(lower, mode)} ≤ {param_name} ≤ {fmt_num(upper, mode)}")
+                            f"{fmt_num(lower, mode)} ≤ {param_name} ≤ {fmt_num(upper, mode)}")
             else:
                 lines.append(f"  → Điều kiện tham số rút gọn: {param_name} ≥ {fmt_num(lower, mode)}")
 
+        # ── Nhiều biến tự do: điều kiện bản thân ────────────────────────────
         else:
-            # Nhiều biến tự do: nhắc thêm điều kiện bản thân
             lines.append("")
-            lines.append("  Thêm điều kiện bản thân các biến phi cơ sở:")
+            lines.append("  Thêm điều kiện của các biến không cơ sở:")
             for fn in free_names:
                 lines.append(f"    {fn} ≥ 0")
 
         return lines
 
     def _format_multiple_optimal_conclusion(self, engine, snapshot, report):
+        """Trả về các dòng 'Nghiệm tối ưu là:' + điều kiện, dùng trong KẾT LUẬN."""
         mode = self.data_mode
         free_vars = report.multiple_optimal_vars or []
         if not free_vars:
             return []
 
         aux_idx = getattr(engine, "phase1_aux_var_index", None)
-        art_set = set(engine.artificial_vars)
+        art_set  = set(engine.artificial_vars)
         free_set = set(free_vars)
         free_names = [snapshot.all_names[j] for j in free_vars]
-        bp = {b: i for i, b in enumerate(snapshot.basis)}
+        basis_list = list(snapshot.basis)
 
-        # ── Hàm biểu diễn biến chuẩn từ từ vựng ──────────────────────
-        def std_expr(idx):
-            """Trả về (const, terms) biểu diễn biến std idx theo các biến tự do."""
-            if idx in bp:
-                r = bp[idx]
-                terms = [(snapshot.rows[r].get(fv, Fraction(0)),
-                          snapshot.all_names[fv])
-                         for fv in free_vars
-                         if snapshot.rows[r].get(fv, Fraction(0)) != 0]
-                return snapshot.rhs[r], terms
-            if idx in free_set:
-                return Fraction(0), [(Fraction(1), snapshot.all_names[idx])]
-            return Fraction(0), []
-
-        # ── In nghiệm tổng quát ─────────────────────────────────────────
-        lines = ["  Nghiệm tổng quát:"]
+        # ── Map std_var_index → (orig_idx, role) để tính x_i = a_i - b_i ──
+        # role: +1 = a_i (hoặc biến ≥0/≤0 duy nhất), -1 = b_i
+        std_role: Dict[int, tuple] = {}   # j → (orig_idx, sign)
         for orig_idx, mapping in enumerate(engine.variable_mapping):
-            var_name = f"x{orig_idx+1}"
-
-            # Biến ≥0 hoặc ≤0: mapping = [(j, ±1)]
             if len(mapping) == 1:
-                j, coef_m = mapping[0]
-                if j in free_set and coef_m == Fraction(1):
-                    # Chính là biến tự do (x_i = t_j)
-                    lines.append(f"    {var_name} = {snapshot.all_names[j]}  (tham số tự do)")
-                    continue
-                if j in free_set and coef_m == Fraction(-1):
-                    # x_i = -t_j (biến ≤0)
-                    lines.append(f"    {var_name} = -{snapshot.all_names[j]}  (tham số tự do)")
-                    continue
-                # Biến trong cơ sở hoặc phi cơ sở không tự do
-                sc, st = std_expr(j)
-                const_val = coef_m * sc
-                terms_val = [(coef_m * c, n) for c, n in st]
-                lines.append(f"    {var_name} = {self._linear_text(const_val, terms_val, mode)}")
-                continue
+                std_role[mapping[0][0]] = (orig_idx, Fraction(1))
+            elif len(mapping) == 2:
+                std_role[mapping[0][0]] = (orig_idx, Fraction(1))   # a_i
+                std_role[mapping[1][0]] = (orig_idx, Fraction(-1))  # b_i
 
-            # Biến tự do gốc: mapping = [(j1, +1), (j2, -1)] → x = j1 - j2
-            if len(mapping) == 2:
-                j1, j2 = mapping[0][0], mapping[1][0]
-                c1_v, t1 = std_expr(j1)
-                c2_v, t2 = std_expr(j2)
-                # Gộp: x = (c1 + Σt1) - (c2 + Σt2)
-                const_diff = c1_v - c2_v
-                merged: Dict[str, Fraction] = {}
-                for coef, nm in t1:
-                    merged[nm] = merged.get(nm, Fraction(0)) + coef
-                for coef, nm in t2:
-                    merged[nm] = merged.get(nm, Fraction(0)) - coef
-                merged_terms = [(v, k) for k, v in merged.items() if v != 0]
-                lines.append(f"    {var_name} = {self._linear_text(const_diff, merged_terms, mode)}")
-                continue
+        # ── Tính biểu diễn x_i theo biến tự do ──────────────────────────────
+        # Gộp các std-var cùng map về x_i: x_i = Σ sign_j * std_var_j
+        # std_var_j = rhs[ri] + Σ_fv coef[ri][fv]*fv  nếu j ∈ basis
+        #           = fv                               nếu j ∈ free_vars
+        #           = 0                               otherwise
+        n_orig = len(engine.problem.var_signs)
+        xi_expr: Dict[int, tuple] = {}   # orig_idx → (const, {fv: coef})
 
-            # Trường hợp khác: tính trực tiếp
-            const_val = Fraction(0)
-            terms_val = []
-            for si, mc in mapping:
-                sc, st = std_expr(si)
-                const_val += mc * sc
-                for c, n in st:
-                    terms_val.append((mc * c, n))
-            lines.append(f"    {var_name} = {self._linear_text(const_val, terms_val, mode)}")
-
-        lines.append("  Điều kiện tham số (từ x_i ≥ 0 / x_i ≤ 0):")
         for orig_idx, mapping in enumerate(engine.variable_mapping):
-            sign = engine.problem.var_signs[orig_idx]
-            if sign == "tự do":
-                continue  # biến tự do không ràng buộc dấu
-
-            var_name = f"x{orig_idx+1}"
-            # Tính biểu diễn x_orig_idx theo tham số
             const_v = Fraction(0)
-            terms_v = []
-            for si, mc in mapping:
-                sc, st = std_expr(si)
-                const_v += mc * sc
-                for c, n in st:
-                    terms_v.append((mc * c, n))
+            fv_coefs: Dict[int, Fraction] = {fv: Fraction(0) for fv in free_vars}
 
-            expr_str = self._linear_text(const_v, terms_v, mode)
-            if sign == "≥0":
-                lines.append(f"    {var_name} = {expr_str} ≥ 0")
-            elif sign == "≤0":
-                lines.append(f"    {var_name} = {expr_str} ≤ 0")
+            for j, mc in mapping:
+                if j in set(basis_list):
+                    ri = basis_list.index(j)
+                    const_v += mc * snapshot.rhs[ri]
+                    for fv in free_vars:
+                        fv_coefs[fv] += mc * snapshot.rows[ri].get(fv, Fraction(0))
+                elif j in free_set:
+                    fv_coefs[j] = fv_coefs.get(j, Fraction(0)) + mc
+                # else: phi cơ sở không tự do → = 0, không đóng góp
 
-        # Điều kiện bản thân các tham số ≥ 0
-        lines.append("  Điều kiện bản thân tham số:")
-        for fn in free_names:
-            lines.append(f"    {fn} ≥ 0")
+            xi_expr[orig_idx] = (const_v, fv_coefs)
+
+        # ── In nghiệm tối ưu ─────────────────────────────────────────────────
+        lines = ["  Nghiệm tối ưu là:"]
+        for orig_idx in range(n_orig):
+            var_name = f"x{orig_idx+1}"
+            const_v, fv_coefs = xi_expr[orig_idx]
+            terms = [(fv_coefs[fv], snapshot.all_names[fv])
+                     for fv in free_vars if fv_coefs.get(fv, Fraction(0)) != 0]
+            lines.append(f"  - {var_name} = {self._linear_text(const_v, terms, mode)}")
+
+        # ── Điều kiện kèm theo — tính thẳng từ từng hàng basis ─────────────
+        # Mỗi biến cơ sở b_i = rhs[ri] + Σ coef*fv phải ≥ 0
+        # Dùng snapshot.rows trực tiếp để bao gồm cả biến bù (w_j) trong basis.
+        if len(free_vars) == 1:
+            param_idx  = free_vars[0]
+            param_name = free_names[0]
+            lowers, uppers = [Fraction(0)], []
+            for ri, b in enumerate(basis_list):
+                if b in art_set:
+                    continue
+                if aux_idx is not None and b == aux_idx:
+                    continue
+                coef = snapshot.rows[ri].get(param_idx, Fraction(0))
+                if coef == 0:
+                    continue
+                bound = -snapshot.rhs[ri] / coef
+                if coef > 0:
+                    lowers.append(bound)
+                else:
+                    uppers.append(bound)
+            lower = max(lowers)
+            if uppers:
+                upper = min(uppers)
+                cond_str = f"{fmt_num(lower, mode)} ≤ {param_name} ≤ {fmt_num(upper, mode)}"
+            else:
+                cond_str = f"{param_name} ≥ {fmt_num(lower, mode)}"
+            lines.append(f"  với {cond_str}.")
+        else:
+            # Nhiều biến tự do: lấy điều kiện từ từng hàng basis có phụ thuộc fv
+            # rồi thêm fv ≥ 0. Dùng snapshot.rows để bao gồm cả biến bù w_j.
+            cond_parts = []
+            seen_rows = set()
+            for ri, b in enumerate(basis_list):
+                if b in art_set:
+                    continue
+                if aux_idx is not None and b == aux_idx:
+                    continue
+                has_free = any(snapshot.rows[ri].get(fv, Fraction(0)) != 0
+                               for fv in free_vars)
+                if not has_free or ri in seen_rows:
+                    continue
+                seen_rows.add(ri)
+                terms = [(snapshot.rows[ri].get(fv, Fraction(0)), snapshot.all_names[fv])
+                         for fv in free_vars
+                         if snapshot.rows[ri].get(fv, Fraction(0)) != 0]
+                expr = self._linear_text(snapshot.rhs[ri], terms, mode)
+                cond_parts.append(f"{expr} ≥ 0")
+            for fn in free_names:
+                cond_parts.append(f"{fn} ≥ 0")
+            lines.append(f"  với {'; '.join(cond_parts)}.")
 
         return lines
 
@@ -2562,14 +2658,15 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             for line in self._format_multiple_optimal_family(engine,final,report):
                 self.output.insert(tk.END,line+"\n","warn" if "vô số" in line else "note")
             self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
+            self.output.insert(tk.END,"  Bài toán có vô số nghiệm tối ưu.\n","note")
+            for line in self._format_multiple_optimal_conclusion(engine,final,report):
+                self.output.insert(tk.END,line+"\n","note")
             if is_max:
                 self.output.insert(tk.END,
-                    f"  Bài toán có vô số nghiệm tối ưu.\n"
-                    f"  Giá trị tối ưu là: z* = max Z = −(min Z') = −({fmt_num(obj_std,mode)}) = {fmt_num(obj_orig,mode)}\n")
+                    f"  Giá trị tối ưu là: z* = max Z = −(min Z') = −({fmt_num(obj_std,mode)}) = {fmt_num(obj_orig,mode)}\n","note")
             else:
                 self.output.insert(tk.END,
-                    f"  Bài toán có vô số nghiệm tối ưu.\n"
-                    f"  Giá trị tối ưu là: z* = max Z = −(min Z') = −({fmt_num(obj_std,mode)}) = {fmt_num(obj_orig,mode)}\n")
+                    f"  Giá trị tối ưu là: z* = {fmt_num(obj_orig,mode)}\n","note")
         else:
             self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
             method_lbl = "Dantzig" if report.used_method == "dantzig" else "Bland"
