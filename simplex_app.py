@@ -1178,8 +1178,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         return unique
 
     def _compute_plot_bounds(self, vertices, halfplanes):
-        # Tính khung nhìn (xmin, xmax, ymin, ymax) để đồ thị bao phủ toàn bộ miền khả thi.
-        # Luôn đảm bảo gốc tọa độ (0, 0) nằm trong khung nhìn.
         if vertices:
             xs = [p[0] for p in vertices]; ys = [p[1] for p in vertices]
             sx = max(xs)-min(xs); sy = max(ys)-min(ys)
@@ -1191,8 +1189,31 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             xmax, ymax = max(xmax, 0.), max(ymax, 0.)
         else:
             xmin, xmax, ymin, ymax = -5., 5., -5., 5.
+        EXPAND_LIMIT = 8.0
+        for a, b, c, sense, _ in halfplanes:
+            fa, fb, fc = float(a), float(b), float(c)
+            cand_pts = []
+            eps = 1e-12
+            if abs(fb) > eps:
+                cand_pts.append((xmin, (fc - fa*xmin)/fb))
+                cand_pts.append((xmax, (fc - fa*xmax)/fb))
+            if abs(fa) > eps: 
+                cand_pts.append(((fc - fb*ymin)/fa, ymin))
+                cand_pts.append(((fc - fb*ymax)/fa, ymax))
+            for cx, cy in cand_pts:
+                if not (math.isfinite(cx) and math.isfinite(cy)):
+                    continue
+                xr_cur = xmax - xmin; yr_cur = ymax - ymin
+                if cx < xmin and cx >= xmin - EXPAND_LIMIT*xr_cur:
+                    xmin = cx - 0.04*xr_cur
+                if cx > xmax and cx <= xmax + EXPAND_LIMIT*xr_cur:
+                    xmax = cx + 0.04*xr_cur
+                if cy < ymin and cy >= ymin - EXPAND_LIMIT*yr_cur:
+                    ymin = cy - 0.04*yr_cur
+                if cy > ymax and cy <= ymax + EXPAND_LIMIT*yr_cur:
+                    ymax = cy + 0.04*yr_cur
         xr, yr = xmax-xmin, ymax-ymin
-        return xmin-0.32*xr, xmax+0.32*xr, ymin-0.30*yr, ymax+0.30*yr
+        return xmin-0.28*xr, xmax+0.28*xr, ymin-0.28*yr, ymax+0.28*yr
 
     def _create_meshgrid(self, xmin, xmax, ymin, ymax):
         # Tạo lưới 220×220 điểm bao phủ khung nhìn để tô màu miền chấp nhận bằng contourf.
@@ -1782,7 +1803,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         # Thiết lập tiêu đề, nhãn trục, trục tọa độ, legend — light theme.
         ax.set_xlim(xmin, xmax)
         ax.set_ylim(ymin, ymax)
-        ax.set_aspect("auto", adjustable="box")
+        ax.set_aspect("equal", adjustable="datalim")
         ax.set_xlabel("x₁", fontsize=12, fontweight="bold", color="#37474F")
         ax.set_ylabel("x₂", fontsize=12, fontweight="bold", color="#37474F")
         ax.axhline(0, color="#90A4AE", linewidth=1.1, alpha=0.7, zorder=0.5)
