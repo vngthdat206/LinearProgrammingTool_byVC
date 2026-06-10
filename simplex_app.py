@@ -1610,8 +1610,15 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             z_label = "Z" if prob.objective_sense == "min" else "Z"
             z_str = f"{z_val:.4g}"
             if multi_opt:
-                lbl("Điểm tối ưu bất kỳ trên đoạn:", fg="#1565C0")
-                lbl(f"  ({optimal[0]:.4g}, {optimal[1]:.4g})", fg="#1565C0")
+                cx_m = sum(p[0] for p in multi_opt) / len(multi_opt)
+                cy_m = sum(p[1] for p in multi_opt) / len(multi_opt)
+                multi_sorted = sorted(multi_opt,
+                                      key=lambda p: math.atan2(p[1]-cy_m, p[0]-cx_m))
+                p0, p1 = multi_sorted[0], multi_sorted[-1]
+                lbl("Nghiệm tối ưu (đoạn):", fg="#1565C0",
+                    font=("Segoe UI", 9, "bold"))
+                lbl(f"  ({p0[0]:.4g}, {p0[1]:.4g}) — ({p1[0]:.4g}, {p1[1]:.4g})",
+                    fg="#1565C0")
                 lbl(f"Giá trị tối ưu: {z_label} = {z_str}",
                     fg="#1565C0", font=("Segoe UI", 9, "bold"))
             else:
