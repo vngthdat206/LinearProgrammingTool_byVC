@@ -1213,26 +1213,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 if cy > ymax and cy <= ymax + EXPAND_LIMIT*yr_cur:
                     ymax = cy + 0.04*yr_cur
         xr, yr = xmax-xmin, ymax-ymin
-        return xmin-0.28*xr, xmax+0.28*xr, ymin-0.28*yr, ymax+0.28*yr
-
-    def _create_meshgrid(self, xmin, xmax, ymin, ymax):
-        # Tạo lưới 220×220 điểm bao phủ khung nhìn để tô màu miền chấp nhận bằng contourf.
-        import numpy as np
-        x = np.linspace(xmin, xmax, 220)
-        y = np.linspace(ymin, ymax, 220)
-        X, Y = np.meshgrid(x, y)
-        return x, y, X, Y
-
-    def _compute_feasible_region(self, halfplanes, X, Y):
-        # Tính mảng boolean mask: True tại điểm (X[i,j], Y[i,j]) nếu thuộc miền khả thi.
-        import numpy as np
-        mask = np.ones_like(X, dtype=bool)
-        for a, b, c, sense, _ in halfplanes:
-            lhs = float(a)*X + float(b)*Y; cc = float(c)
-            if sense == "≤": mask &= lhs <= cc+1e-9
-            elif sense == "≥": mask &= lhs >= cc-1e-9
-            else: mask &= np.abs(lhs-cc) <= 1e-2
-        return mask
+        return xmin-0.10*xr, xmax+0.10*xr, ymin-0.10*yr, ymax+0.10*yr
 
     def _find_optimal_vertex(self, vertex_values, maximize):
         # Tìm đỉnh tối ưu trong danh sách (x, y, z): max z nếu maximize, min z nếu minimize.
@@ -1358,9 +1339,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 ymin = min(ymin, tip_y - extra)
                 ymax = max(ymax, tip_y + extra)
 
-        _, _, X, Y = self._create_meshgrid(xmin, xmax, ymin, ymax)
-        feasible_mask = self._compute_feasible_region(halfplanes, X, Y)
-
         # ── Dựng cửa sổ ──────────────────────────────────────────────────
         win = self._create_visualization_window()
         outer = tk.Frame(win, bg="#0f172a")
@@ -1374,11 +1352,11 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         canvas_host.columnconfigure(0, weight=1)
 
         fig, ax = self._create_figure()
-        self._plot_feasible_region(ax, X, Y, feasible_mask)
         self._plot_constraints(ax, halfplanes, xmin, xmax, ymin, ymax)
         self._plot_objective_contours(ax, c1, c2, vertex_values,
                                       xmin, xmax, ymin, ymax, maximize)
-        self._plot_vertices(ax, vertex_values, maximize)
+        if status != "unbounded":
+            self._plot_vertices(ax, vertex_values, maximize)
 
         # Vẽ đặc trưng theo trạng thái
         if status == "unbounded":
@@ -1708,17 +1686,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         ax.tick_params(colors="#37474F", labelsize=9)
         return fig, ax
 
-    def _plot_feasible_region(self, ax, X, Y, mask):
-        # Tô vùng chấp nhận được với lớp màu dịu trên nền sáng.
-        z = mask.astype(float)
-        ax.contourf(
-            X, Y, z,
-            levels=[0.5, 1.5],
-            colors=["#90CAF9"],
-            alpha=0.22,
-            zorder=0,
-        )
-
     def _plot_constraints(self, ax, halfplanes, xmin, xmax, ymin, ymax):
         # Vẽ từng đường biên ràng buộc — màu xoay vòng Set3-inspired, đủ 12 màu phân biệt.
         # Không vẽ nhãn inline; nhãn hiển thị qua legend.
@@ -1765,22 +1732,102 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                         bbox=dict(boxstyle="round,pad=0.25",
                                   fc="#E3F2FD", ec="#1565C0", alpha=0.95), zorder=4)
 
+    def _convex_hull_order(self, coords_2d):
+        import numpy as np
+        n = len(coords_2d)
+        if n < 2:
+            return list(range(n))
+        if n == 2:
+            return [0, 1]
+
+        # --- Scipy---
+        try:
+            from scipy.spatial import ConvexHull
+            hull = ConvexHull(coords_2d, qhull_options="QJ")
+            # hull.vertices là CCW; đảm bảo thứ tự bằng cách lấy theo simplices
+            return list(hull.vertices)
+        except Exception:
+            pass
+
+        # --- Fallback---
+        pts = [(coords_2d[i][0], coords_2d[i][1], i) for i in range(n)]
+        # Điểm khởi đầu: y nhỏ nhất, rồi x nhỏ nhất
+        pivot = min(pts, key=lambda p: (p[1], p[0]))
+        px, py = pivot[0], pivot[1]
+
+        def cross(o, a, b):
+            return (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0])
+
+        rest = [p for p in pts if not (abs(p[0]-px)<1e-12 and abs(p[1]-py)<1e-12)]
+        rest.sort(key=lambda p: (
+            math.atan2(p[1]-py, p[0]-px),
+            (p[0]-px)**2 + (p[1]-py)**2
+        ))
+
+        stack = [pivot, rest[0]] if rest else [pivot]
+        for p in rest[1:]:
+            while len(stack) >= 2 and cross(stack[-2], stack[-1], p) <= 0:
+                stack.pop()
+            stack.append(p)
+
+        return [p[2] for p in stack]
+
     def _plot_vertices(self, ax, vv, maximize):
-        # Vẽ đa giác đỉnh khả thi và đánh số từng đỉnh — light theme.
         if not vv: return
-        pts = list(vv)
-        cx = sum(p[0] for p in pts)/len(pts)
-        cy = sum(p[1] for p in pts)/len(pts)
-        pts.sort(key=lambda t: math.atan2(t[1]-cy, t[0]-cx))
-        ax.fill([p[0] for p in pts],[p[1] for p in pts],
-                color="#BBDEFB", alpha=0.30, zorder=1)
-        ax.plot([p[0] for p in pts]+[pts[0][0]],
-                [p[1] for p in pts]+[pts[0][1]],
-                color="#1565C0", linewidth=1.1, linestyle=":", alpha=0.50, zorder=2.5)
-        for idx,(vx,vy,val) in enumerate(pts,start=1):
-            ax.scatter([vx],[vy], s=42, color="#1976D2",
+        import numpy as np
+        from matplotlib.patches import Polygon as MplPolygon
+
+        pts = list(vv)  # mỗi phần tử: (x, y, z)
+        coords = np.array([(p[0], p[1]) for p in pts], dtype=float)
+
+        # ── Trường hợp 1 đỉnh: chấm ──────────────────────────────────────
+        if len(pts) == 1:
+            ax.scatter([pts[0][0]], [pts[0][1]], s=42, color="#1976D2",
                        edgecolors="#FFFFFF", linewidths=1.2, zorder=5)
-            ax.annotate(f"{idx}", xy=(vx,vy), xytext=(6,6),
+            ax.annotate("1", xy=(pts[0][0], pts[0][1]), xytext=(6,6),
+                        textcoords="offset points", fontsize=9, color="#0D47A1",
+                        bbox=dict(boxstyle="circle,pad=0.20",
+                                  fc="#E3F2FD", ec="#1565C0", alpha=0.96), zorder=6)
+            return
+
+        # ── Trường hợp 2 đỉnh: đoạn thẳng ───────────────────────────────
+        if len(pts) == 2:
+            ax.plot([pts[0][0], pts[1][0]], [pts[0][1], pts[1][1]],
+                    color="#1565C0", linewidth=2.2, alpha=0.75, zorder=2.5)
+            for idx, (vx, vy, _) in enumerate(pts, start=1):
+                ax.scatter([vx], [vy], s=42, color="#1976D2",
+                           edgecolors="#FFFFFF", linewidths=1.2, zorder=5)
+                ax.annotate(f"{idx}", xy=(vx, vy), xytext=(6,6),
+                            textcoords="offset points", fontsize=9, color="#0D47A1",
+                            bbox=dict(boxstyle="circle,pad=0.20",
+                                      fc="#E3F2FD", ec="#1565C0", alpha=0.96), zorder=6)
+            return
+
+        # ── Trường hợp ≥3 đỉnh: vẽ polygon convex hull ───────────────────
+        hull_idx = self._convex_hull_order(coords)
+        hull_pts = [pts[i] for i in hull_idx]   # (x, y, z) theo CCW
+        hull_xy  = np.array([(p[0], p[1]) for p in hull_pts])
+
+        # Tô vùng bằng Patch — pixel-perfect, khớp đúng với các đường thẳng
+        poly_patch = MplPolygon(
+            hull_xy, closed=True,
+            facecolor="#BBDEFB", alpha=0.42,
+            edgecolor="#1565C0", linewidth=1.6,
+            linestyle="-", zorder=1
+        )
+        ax.add_patch(poly_patch)
+
+        # Vẽ điểm + số cho TẤT CẢ đỉnh (theo thứ tự hull để số đi theo chiều CCW)
+        # Đánh số theo hull trước, rồi các điểm còn lại (nếu có, thường không có)
+        hull_set = set(hull_idx)
+        non_hull = [i for i in range(len(pts)) if i not in hull_set]
+        ordered_for_label = list(hull_idx) + non_hull
+
+        for label_num, orig_idx in enumerate(ordered_for_label, start=1):
+            vx, vy, _ = pts[orig_idx]
+            ax.scatter([vx], [vy], s=42, color="#1976D2",
+                       edgecolors="#FFFFFF", linewidths=1.2, zorder=5)
+            ax.annotate(f"{label_num}", xy=(vx, vy), xytext=(6, 6),
                         textcoords="offset points", fontsize=9, color="#0D47A1",
                         bbox=dict(boxstyle="circle,pad=0.20",
                                   fc="#E3F2FD", ec="#1565C0", alpha=0.96), zorder=6)
