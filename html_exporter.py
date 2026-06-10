@@ -579,7 +579,7 @@ def _conclusion_html(report: SolveReport, engine, mode: str) -> str:
                          "<p>Cả Dantzig và Bland đều phát hiện xoay vòng.</p></div>")
         elif rule == "Dantzig":
             parts.append("<div class='conclusion warn-box'><h3>KẾT LUẬN: Xoay vòng</h3>"
-                         "<p>Dantzig phát hiện xoay vòng — hãy thử Bland's Rule.</p></div>")
+                         "<p>Dantzig phát hiện xoay vòng — hãy thử Bland.</p></div>")
         else:
             parts.append("<div class='conclusion warn-box'><h3>KẾT LUẬN: Xoay vòng</h3>"
                          "<p>Bland phát hiện xoay vòng.</p></div>")
