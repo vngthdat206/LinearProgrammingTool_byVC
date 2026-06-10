@@ -1803,7 +1803,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         # Thiết lập tiêu đề, nhãn trục, trục tọa độ, legend — light theme.
         ax.set_xlim(xmin, xmax)
         ax.set_ylim(ymin, ymax)
-        ax.set_aspect("equal", adjustable="datalim")
+        ax.set_aspect("auto", adjustable="box")
         ax.set_xlabel("x₁", fontsize=12, fontweight="bold", color="#37474F")
         ax.set_ylabel("x₂", fontsize=12, fontweight="bold", color="#37474F")
         ax.axhline(0, color="#90A4AE", linewidth=1.1, alpha=0.7, zorder=0.5)
