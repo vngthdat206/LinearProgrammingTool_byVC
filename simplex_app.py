@@ -1192,7 +1192,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         else:
             xmin, xmax, ymin, ymax = -5., 5., -5., 5.
         xr, yr = xmax-xmin, ymax-ymin
-        return xmin-0.32*xr, xmax+0.32*xr, ymin-0.30*yr, ymax+0.30*yr
+        return xmin-0.28*xr, xmax+0.28*xr, ymin-0.28*yr, ymax+0.28*yr
 
     def _create_meshgrid(self, xmin, xmax, ymin, ymax):
         # Tạo lưới 220×220 điểm bao phủ khung nhìn để tô màu miền chấp nhận bằng contourf.
