@@ -1328,6 +1328,13 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         multi_opt: List[Tuple[float, float]] = []
         _snap_check = self._get_final_snapshot(report)
         _is_multi = report and self._has_multiple_optimal(engine, _snap_check, report) and optimal_point
+        # Phát hiện tập nghiệm là tia (không giới nội trên đường tối ưu):
+        # Xảy ra khi có biến tự do "ab" (cả a_i, b_i phi cơ sở) → x_i không bị chặn
+        _is_ray = False
+        if _is_multi and engine and _snap_check:
+            _all_fv, _sfp = self._expand_free_vars_with_splits(
+                engine, _snap_check, report.multiple_optimal_vars or [])
+            _is_ray = any(which == "ab" for _, ja, jb, which in _sfp)
         if _is_multi:
             opt_z = optimal_point[2]
             tol = max(1e-6, 1e-4 * abs(opt_z)) if abs(opt_z) > 1e-10 else 1e-6
@@ -1373,6 +1380,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 ymin = min(ymin, tip_y - extra)
                 ymax = max(ymax, tip_y + extra)
               
+        ray_origin: Optional[Tuple[float, float]] = None  # điểm đầu của tia (nếu là tia)
         if _is_multi and len(multi_opt) < 2 and abs(c1) + abs(c2) > 1e-12:
             opt_z  = optimal_point[2]
             tol    = max(1e-6, 1e-4 * abs(opt_z)) if abs(opt_z) > 1e-10 else 1e-6
@@ -1392,6 +1400,15 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                             seg_pts.append((px, py))
                 if len(seg_pts) >= 2:
                     multi_opt = seg_pts
+
+        # Nếu là tia: xác định ray_origin = đỉnh tối ưu (đầu hữu hạn của tia)
+        # multi_opt gồm các điểm trên đường tối ưu trong viewport;
+        # với tia, một đầu là đỉnh góc hữu hạn, đầu kia chạm biên viewport
+        if _is_ray and len(multi_opt) >= 2 and optimal_point:
+            ox, oy = optimal_point[0], optimal_point[1]
+            # Chọn điểm trong multi_opt gần nhất với optimal_point làm ray_origin
+            ray_origin = min(multi_opt,
+                             key=lambda p: (p[0]-ox)**2 + (p[1]-oy)**2)
 
         # ── Dựng cửa sổ ──────────────────────────────────────────────────
         win = self._create_visualization_window()
@@ -1422,7 +1439,10 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                                           _unb_dx, _unb_dy)
         if status != "infeasible" and status != "unbounded":
             if multi_opt and len(multi_opt) >= 2:
-                self._plot_optimal_edge_2d(ax, multi_opt, vertex_values)
+                if _is_ray and ray_origin is not None:
+                    self._plot_optimal_ray_2d(ax, multi_opt, ray_origin, vertex_values)
+                else:
+                    self._plot_optimal_edge_2d(ax, multi_opt, vertex_values)
             elif optimal_point:
                 self._plot_optimal_point(ax, optimal_point, maximize)
 
@@ -1445,6 +1465,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         self._create_info_panel_v2(canvas_host, prob, vertices, vertex_values,
                                    optimal_point, maximize, status=status,
                                    multi_opt=multi_opt,
+                                   is_ray=_is_ray,
                                    path_d=path_d, path_b=path_b)
         self._create_zoom_controls(outer, ax, canvas,
                                    (xmin, xmax), (ymin, ymax))
@@ -1522,41 +1543,26 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                           fc="#FFEBEE", ec="#C62828", alpha=0.95),
                 zorder=10)
 
-    # ── Vẽ đoạn tối ưu vô số nghiệm 2D ─────────────────────────────────
+    # ── Vẽ tập nghiệm tối ưu vô số nghiệm 2D ───────────────────────────
     def _plot_optimal_edge_2d(self, ax,
                                multi_opt: List[Tuple[float, float]],
                                vertex_values: List[Tuple[float, float, float]] = None):
-        """Highlight đoạn/cạnh tối ưu khi bài toán có vô số nghiệm.
-        multi_opt: danh sách các đỉnh (x,y) có cùng giá trị mục tiêu tối ưu.
-        """
+        """Highlight đoạn tối ưu (bounded). Vẽ đường vàng + ⭐ ở các đỉnh + Z*."""
         if len(multi_opt) < 2:
             return
-
-        # Sắp xếp theo góc quanh trọng tâm để nối đúng thứ tự
         cx_m = sum(p[0] for p in multi_opt) / len(multi_opt)
         cy_m = sum(p[1] for p in multi_opt) / len(multi_opt)
-        multi_sorted = sorted(multi_opt,
-                              key=lambda p: math.atan2(p[1]-cy_m, p[0]-cx_m))
-
-        # Tô sáng đoạn/cạnh tối ưu
-        xs_m = [p[0] for p in multi_sorted]
-        ys_m = [p[1] for p in multi_sorted]
-        ax.plot(xs_m, ys_m,
+        pts = sorted(multi_opt, key=lambda p: math.atan2(p[1]-cy_m, p[0]-cx_m))
+        ax.plot([p[0] for p in pts], [p[1] for p in pts],
                 color="#fbbf24", linewidth=7, alpha=0.70, zorder=6,
-                solid_capstyle="round",
-                label="Đoạn tối ưu (vô số nghiệm)")
-
-        # Đánh dấu từng đỉnh tối ưu bằng ngôi sao
-        for px, py in multi_sorted:
+                solid_capstyle="round", label="Đoạn tối ưu (vô số nghiệm)")
+        for px, py in pts:
             ax.scatter([px], [py], s=260, marker="*",
                        color="#f59e0b", edgecolors="#fde68a",
                        linewidths=1.2, zorder=8)
-
-        # Ghi chú tại đỉnh đầu tiên, kèm giá trị Z*
-        px0, py0 = multi_sorted[0]
+        px0, py0 = pts[0]
         opt_z_str = ""
         if vertex_values:
-            # Tìm z-value tương ứng với đỉnh đầu tiên
             for vx, vy, vz in vertex_values:
                 if abs(vx - px0) < 1e-6 and abs(vy - py0) < 1e-6:
                     opt_z_str = f"\nZ* = {vz:.4g}"
@@ -1565,8 +1571,39 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             f"Vô số nghiệm tối ưu\n(toàn bộ đoạn vàng đều tối ưu){opt_z_str}",
             xy=(px0, py0), xytext=(16, 20), textcoords="offset points",
             fontsize=9, fontweight="bold", color="#E65100",
-            bbox=dict(boxstyle="round,pad=0.35",
-                      fc="#FFF8E1", ec="#F57F17", alpha=0.97),
+            bbox=dict(boxstyle="round,pad=0.35", fc="#FFF8E1", ec="#F57F17", alpha=0.97),
+            arrowprops=dict(arrowstyle="->", color="#E65100", lw=1.5),
+            zorder=10)
+
+    def _plot_optimal_ray_2d(self, ax,
+                              multi_opt: List[Tuple[float, float]],
+                              ray_origin: Tuple[float, float],
+                              vertex_values: List[Tuple[float, float, float]] = None):
+        """Highlight tia tối ưu (unbounded). Vẽ đường vàng + mũi tên → ∞, không ⭐."""
+        if len(multi_opt) < 2:
+            return
+        ox, oy = ray_origin
+        pts = sorted(multi_opt, key=lambda p: (p[0]-ox)**2 + (p[1]-oy)**2)
+        ax.plot([p[0] for p in pts], [p[1] for p in pts],
+                color="#fbbf24", linewidth=7, alpha=0.70, zorder=6,
+                solid_capstyle="round", label="Tia/Đường tối ưu (vô số nghiệm)")
+        tip_x, tip_y = pts[-1]
+        prev_x, prev_y = pts[-2] if len(pts) > 2 else pts[0]
+        ax.annotate("", xy=(tip_x, tip_y), xytext=(prev_x, prev_y),
+                    arrowprops=dict(arrowstyle="-|>", color="#f59e0b",
+                                   lw=2.5, mutation_scale=18),
+                    zorder=9)
+        opt_z_str = ""
+        if vertex_values:
+            for vx, vy, vz in vertex_values:
+                if abs(vx - ox) < 1e-6 and abs(vy - oy) < 1e-6:
+                    opt_z_str = f"\nZ* = {vz:.4g}"
+                    break
+        ax.annotate(
+            f"Vô số nghiệm tối ưu{opt_z_str}",
+            xy=(ox, oy), xytext=(16, 20), textcoords="offset points",
+            fontsize=9, fontweight="bold", color="#E65100",
+            bbox=dict(boxstyle="round,pad=0.35", fc="#FFF8E1", ec="#F57F17", alpha=0.97),
             arrowprops=dict(arrowstyle="->", color="#E65100", lw=1.5),
             zorder=10)
 
@@ -1658,7 +1695,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
     # ── Panel thông tin v2 (thay _create_info_panel) ────────────────────
     def _create_info_panel_v2(self, parent, prob, vertices, vv, optimal,
                                maximize, status="optimal", multi_opt=None,
-                               path_d=None, path_b=None):
+                               is_ray=False, path_d=None, path_b=None):
         multi_opt = multi_opt or []
         path_d = path_d or []
         path_b = path_b or []
@@ -1718,15 +1755,17 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             z_label = "Z" if prob.objective_sense == "min" else "Z"
             z_str = f"{z_val:.4g}"
             if multi_opt:
-                cx_m = sum(p[0] for p in multi_opt) / len(multi_opt)
-                cy_m = sum(p[1] for p in multi_opt) / len(multi_opt)
-                multi_sorted = sorted(multi_opt,
-                                      key=lambda p: math.atan2(p[1]-cy_m, p[0]-cx_m))
-                p0, p1 = multi_sorted[0], multi_sorted[-1]
-                lbl("Nghiệm tối ưu (đoạn):", fg="#1565C0",
+                lbl("Nghiệm tối ưu:", fg="#1565C0",
                     font=("Segoe UI", 9, "bold"))
-                lbl(f"  ({p0[0]:.4g}, {p0[1]:.4g}) — ({p1[0]:.4g}, {p1[1]:.4g})",
-                    fg="#1565C0")
+                if not is_ray:
+                    # Đoạn: hiển thị tọa độ 2 đầu mút
+                    cx_m = sum(p[0] for p in multi_opt) / len(multi_opt)
+                    cy_m = sum(p[1] for p in multi_opt) / len(multi_opt)
+                    multi_sorted = sorted(multi_opt,
+                                          key=lambda p: math.atan2(p[1]-cy_m, p[0]-cx_m))
+                    p0, p1 = multi_sorted[0], multi_sorted[-1]
+                    lbl(f"  ({p0[0]:.4g}, {p0[1]:.4g}) — ({p1[0]:.4g}, {p1[1]:.4g})",
+                        fg="#1565C0")
                 lbl(f"Giá trị tối ưu: {z_label} = {z_str}",
                     fg="#1565C0", font=("Segoe UI", 9, "bold"))
             else:
@@ -2883,34 +2922,85 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         for fv in non_split_free:
             cond_parts.append(f"{snapshot.all_names[fv]} ≥ 0")
 
-        # Rút gọn khoảng nếu chỉ có đúng 1 tham số thực sự
-        # (1 non-split param, dù có hay không có split pairs)
-        if len(non_split_free) == 1:
-            param_idx = non_split_free[0]
-            param_name = snapshot.all_names[param_idx]
-            lowers, uppers = [Fraction(0)], []
-            for ri, b in enumerate(basis_list):
-                if b in art_set or b in ai_set or b in bi_set:
-                    continue
-                if aux_idx is not None and b == aux_idx:
-                    continue
-                coef = snapshot.rows[ri].get(param_idx, Fraction(0))
-                if coef == 0:
-                    continue
-                bound = -snapshot.rhs[ri] / coef
-                if coef > 0:
-                    lowers.append(bound)
-                else:
-                    uppers.append(bound)
-            lower = max(lowers)
+        # ── Rút gọn điều kiện cho từng tham số xi (split "ab" hoặc non-split) ──
+        # Tìm tất cả tham số thực sự (mỗi split-ab pair gộp thành 1 xi, non-split là 1 param)
+        # Chỉ rút gọn khi đúng 1 tham số thực sự
+        ab_pairs = [(oi, ja, jb) for oi, ja, jb, which in split_free_pairs if which == "ab"]
+        n_real_params = len(ab_pairs) + len(non_split_free)
+
+        if n_real_params == 1:
             cond_parts_rut = []
-            if uppers:
-                upper = min(uppers)
-                cond_parts_rut.append(
-                    f"{fmt_num(lower, mode)} ≤ {param_name} ≤ {fmt_num(upper, mode)}")
+            if ab_pairs:
+                # Tham số là x_i = a_i - b_i, tự do → chỉ bị giới hạn bởi biến cơ sở
+                oi_p, ja_p, jb_p = ab_pairs[0]
+                param_name = f"x{oi_p+1}"
+                # Duyệt các hàng basis (không phải a/b của split)
+                # Hàng có coef[ja_p] hoặc coef[jb_p] ≠ 0 tạo ra ràng buộc
+                # Biến cơ sở w = rhs + coef_a*a + coef_b*b ≥ 0
+                # a và b tự do, nhưng x = a - b. Nếu chỉ có cặp này:
+                # w = rhs + coef_a*a + coef_b*b ≥ 0
+                # Tốt nhất: với mỗi hàng, gộp coef_a*a + coef_b*b → c_x * x (nếu coef_b == -coef_a)
+                lowers, uppers = [], []
+                for ri, b in enumerate(basis_list):
+                    if b in art_set or (aux_idx is not None and b == aux_idx):
+                        continue
+                    if b in ai_set or b in bi_set:
+                        continue
+                    ca = snapshot.rows[ri].get(ja_p, Fraction(0))
+                    cb = snapshot.rows[ri].get(jb_p, Fraction(0))
+                    if ca == 0 and cb == 0:
+                        continue
+                    # Nếu cb == -ca: hàng có dạng w = rhs + ca*(a-b) = rhs + ca*x → w ≥ 0
+                    if cb == -ca and ca != 0:
+                        rhs_v = snapshot.rhs[ri]
+                        # ca*x ≥ -rhs_v → nếu ca > 0: x ≥ -rhs_v/ca; nếu ca < 0: x ≤ -rhs_v/ca
+                        bound = -rhs_v / ca
+                        if ca > 0:
+                            lowers.append(bound)
+                        else:
+                            uppers.append(bound)
+                    # Nếu không gộp được → giữ nguyên dạng raw (bỏ qua rút gọn)
+                lower = max(lowers) if lowers else None
+                upper = min(uppers) if uppers else None
+                if lower is not None and upper is not None:
+                    cond_parts_rut.append(
+                        f"{fmt_num(lower, mode)} ≤ {param_name} ≤ {fmt_num(upper, mode)}")
+                elif lower is not None:
+                    if lower == 0:
+                        cond_parts_rut.append(f"{param_name} ≥ 0")
+                    else:
+                        cond_parts_rut.append(f"{param_name} ≥ {fmt_num(lower, mode)}")
+                elif upper is not None:
+                    cond_parts_rut.append(f"{param_name} ≤ {fmt_num(upper, mode)}")
+                # else: không có ràng buộc → x_i hoàn toàn tự do, không in gì
+                cond_parts = cond_parts_rut
             else:
-                cond_parts_rut.append(f"{param_name} ≥ {fmt_num(lower, mode)}")
-            cond_parts = cond_parts_rut
+                # Tham số non-split đơn: logic cũ
+                param_idx = non_split_free[0]
+                param_name = snapshot.all_names[param_idx]
+                lowers, uppers = [Fraction(0)], []
+                for ri, b in enumerate(basis_list):
+                    if b in art_set or b in ai_set or b in bi_set:
+                        continue
+                    if aux_idx is not None and b == aux_idx:
+                        continue
+                    coef = snapshot.rows[ri].get(param_idx, Fraction(0))
+                    if coef == 0:
+                        continue
+                    bound = -snapshot.rhs[ri] / coef
+                    if coef > 0:
+                        lowers.append(bound)
+                    else:
+                        uppers.append(bound)
+                lower = max(lowers)
+                cond_parts_rut = []
+                if uppers:
+                    upper = min(uppers)
+                    cond_parts_rut.append(
+                        f"{fmt_num(lower, mode)} ≤ {param_name} ≤ {fmt_num(upper, mode)}")
+                else:
+                    cond_parts_rut.append(f"{param_name} ≥ {fmt_num(lower, mode)}")
+                cond_parts = cond_parts_rut
 
         if cond_parts:
             lines.append(f"  với {'; '.join(cond_parts)}.")
