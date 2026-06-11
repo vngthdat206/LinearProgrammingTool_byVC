@@ -1,0 +1,7 @@
+﻿"# Định dạng: sense | obj | signs | con (hệ số...,dấu,rhs)"
+sense,max
+obj,4,2,-1
+signs,≥0,≥0,≥0
+con,-8,-2,1,≥,5
+con,1,-2,0,≤,3
+con,3,0,-5,≤,9
