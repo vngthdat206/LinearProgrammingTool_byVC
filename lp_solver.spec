@@ -3,10 +3,10 @@
 
 a = Analysis(
     ['main.py'],
-    pathex=['.'],
+    pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=['simplex_app', 'simplex_engine', 'models', 'utils', 'animator', 'html_exporter', 'viz3d', 'reference_original'],
+    hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -22,7 +22,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='main',
+    name='lp_solver',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
