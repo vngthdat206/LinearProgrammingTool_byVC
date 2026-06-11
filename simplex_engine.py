@@ -802,22 +802,15 @@ class SimplexEngine:
             obj_orig = obj_std
 
         # Phát hiện vô số nghiệm:
-        # Biến không cơ sở có hệ số 0 trên hàm mục tiêu VÀ có thể tăng mà không phá khả thi.
-        # Loại bỏ: biến độ nhiễu, và cặp (a_i, b_i) của biến tự do (vì a_i - b_i = const nên
-        # cả hai đều có c=0 nhưng thực ra nghiệm là duy nhất theo biến gốc x_i).
         art_set = set(self.artificial_vars)
 
-        # Xây dựng tập các biến "đối ngẫu" của biến tự do:
-        # Nếu x_i tự do → x_i = a_j - b_j; nếu a_j hoặc b_j đều ở ngoài cơ sở với c=0
-        # thì không thực sự tự do vì chúng ràng buộc nhau.
-        free_var_pairs: set[int] = set()
+        split_partner: Dict[int, int] = {}
         for mapping in self.variable_mapping:
             if len(mapping) == 2:
                 j1, j2 = mapping[0][0], mapping[1][0]
-                free_var_pairs.add(j1)
-                free_var_pairs.add(j2)
+                split_partner[j1] = j2
+                split_partner[j2] = j1
 
-        # Tập biến phụ pha 1 bổ trợ (x0) cần loại khỏi free_vars
         aux_set = set()
         if self.phase1_aux_var_index is not None:
             aux_set.add(self.phase1_aux_var_index)
@@ -834,11 +827,9 @@ class SimplexEngine:
                 continue
             if snapshot.obj.get(j, Fraction(0)) != 0:
                 continue
-            # Nếu j là một trong cặp biến tự do, chỉ thêm nếu đối ngẫu của nó cũng ngoài cơ sở
-            # → thực sự tham số tự do (biến gốc x_i = a_j - b_j không cố định)
-            # Để đơn giản: bỏ qua cả cặp, tức không coi là vô số nghiệm do cặp tự do
-            if j in free_var_pairs:
-                continue
+            if j in split_partner:
+                if split_partner[j] not in basis_set:
+                    continue
 
             col = [row.get(j, Fraction(0)) for row in snapshot.rows]
             neg_ratios = [
