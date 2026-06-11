@@ -176,12 +176,14 @@ Có 2 cách sử dụng chương trình:
 ```bash
 git clone https://github.com/vngthdat206/LinearProgrammingTool_byVC
 cd LinearProgrammingTool_byVC
+
 ```
 
 2. (Khuyến nghị) Tạo môi trường ảo:
 
 ```bash
 python -m venv .venv
+
 ```
 
 Kích hoạt môi trường ảo phù hợp với hệ điều hành:
@@ -199,6 +201,7 @@ source .venv/bin/activate
 ```bash
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+
 ```
 
 4. Chạy ứng dụng:
