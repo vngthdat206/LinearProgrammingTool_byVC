@@ -860,7 +860,16 @@ class SimplexEngine:
                 already_processed.update([j1, j2])
 
             elif j1_free and j2 in basis_set:
-                # a_i phi cơ sở, b_i cơ sở → x_i có thể thay đổi
+                # a_i phi cơ sở, b_i cơ sở → tăng a_i có làm x_i = a_i - b_i thay đổi?
+                # b_i = rhs[ri_b] + coef_b_on_j1 * a_i  (a_i là phi cơ sở)
+                # x_i = a_i - b_i = -rhs[ri_b] + (1 - coef_b_on_j1) * a_i
+                ri_b2 = snapshot.basis.index(j2)
+                coef_b_on_j1 = snapshot.rows[ri_b2].get(j1, Fraction(0))
+                net_coef_xi = Fraction(1) - coef_b_on_j1
+                if net_coef_xi == 0:
+                    # x_i không thay đổi khi a_i thay đổi → không phải vô số nghiệm
+                    already_processed.update([j1, j2])
+                    continue
                 col = [row.get(j1, Fraction(0)) for row in snapshot.rows]
                 neg_ratios = [snapshot.rhs[i] / (-a) for i, a in enumerate(col) if a < 0]
                 if not neg_ratios or min(neg_ratios) > 0:
@@ -869,7 +878,16 @@ class SimplexEngine:
                 already_processed.update([j1, j2])
 
             elif j2_free and j1 in basis_set:
-                # b_i phi cơ sở, a_i cơ sở → x_i có thể thay đổi
+                # b_i phi cơ sở, a_i cơ sở → tăng b_i có làm x_i = a_i - b_i thay đổi?
+                # a_i = rhs[ri_a] + coef_a_on_j2 * b_i  (b_i là phi cơ sở)
+                # x_i = a_i - b_i = rhs[ri_a] + (coef_a_on_j2 - 1) * b_i
+                ri_a1 = snapshot.basis.index(j1)
+                coef_a_on_j2 = snapshot.rows[ri_a1].get(j2, Fraction(0))
+                net_coef_xi = coef_a_on_j2 - Fraction(1)
+                if net_coef_xi == 0:
+                    # x_i không thay đổi khi b_i thay đổi → không phải vô số nghiệm
+                    already_processed.update([j1, j2])
+                    continue
                 col = [row.get(j2, Fraction(0)) for row in snapshot.rows]
                 neg_ratios = [snapshot.rhs[i] / (-a) for i, a in enumerate(col) if a < 0]
                 if not neg_ratios or min(neg_ratios) > 0:
