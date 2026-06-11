@@ -159,122 +159,114 @@ Phần mềm đã được hoàn thiện để giải và minh họa đầy đ�
 
 ### 1. Cài đặt và chạy chương trình
 
-Sau khi giải nén bộ mã, mở thư mục dự án và chạy:
+Có 2 cách sử dụng chương trình:
+
+#### Cách 1: Chạy file .exe đã đóng gói (dành cho người dùng)
+
+1. Tải file `simplex_app.exe`.
+2. Chạy trực tiếp file vừa tải về.
+3. Không cần cài Python hay bất kỳ thư viện nào khác.
+
+> Đây là cách thuận tiện nhất nếu bạn chỉ muốn sử dụng chương trình mà không cần chỉnh sửa mã nguồn.
+
+#### Cách 2: Chạy từ mã nguồn (dành cho developer)
+
+1. Clone repository về máy:
+
+```bash
+git clone https://github.com/vngthdat206/LinearProgrammingTool_byVC
+cd LinearProgrammingTool_byVC
+
+```
+
+2. (Khuyến nghị) Tạo môi trường ảo:
+
+```bash
+python -m venv .venv
+
+```
+
+Kích hoạt môi trường ảo phù hợp với hệ điều hành:
+
+```bash
+# Windows
+.venv\Scripts\activate
+
+# macOS / Linux
+source .venv/bin/activate
+```
+
+3. Cài đặt các gói cần thiết từ file `requirements.txt`:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+
+```
+
+4. Chạy ứng dụng:
 
 ```bash
 python main.py
 ```
 
-Yêu cầu:
-- Python 3.x;
-- có thư viện chuẩn `tkinter`;
-- môi trường có thể hiển thị cửa sổ đồ họa;
-- nếu muốn dùng trực quan hóa 3D, cần cài thêm `matplotlib` và `numpy`.
+5. Nếu muốn build lại file `.exe` từ file cấu hình `main.spec`:
+
+```bash
+pyinstaller main.spec
+```
+
+File output sẽ được tạo tại thư mục `dist/main.exe`.
+
+#### Yêu cầu hệ thống
+- Python 3.x
+- Thư viện chuẩn `tkinter`
+- Môi trường có thể hiển thị cửa sổ đồ họa
+- Nếu dùng trực quan hóa 3D, cần cài thêm `matplotlib` và `numpy` (đã được liệt kê trong `requirements.txt`)
 
 ---
 
-### 2. Nhập bài toán
+### 2. Các bước thao tác
 
-#### 2.1 Chọn kiểu dữ liệu
-Trong khung **Thiết lập**, chọn:
-- **Phân số** nếu muốn nhập dạng `1/2`, `3/4`, `-5/2`...
-- **Số thập phân** nếu muốn nhập dạng `0.5`, `-1.25`...
+Để giải một bài toán Quy hoạch tuyến tính, người dùng thực hiện theo quy trình 5 bước đơn giản dưới đây:
 
-#### 2.2 Chọn số biến và số ràng buộc
-- **Số biến**: từ 1 đến 5
-- **Số ràng buộc**: từ 1 đến 10
+#### Bước 1: Thiết lập bài toán
+Ở khung **Thiết lập**, chọn số biến (1–5) và số ràng buộc (1–10). Bảng nhập liệu tự cập nhật.
 
-Sau khi thay đổi số lượng, bấm:
-- **Tạo lại bảng nhập**
+#### Bước 2: Nhập bài toán
+Trong khung **Nhập bài toán**:
+- Chọn kiểu bài toán: **max** hoặc **min**.
+- Nhập hệ số hàm mục tiêu cho từng biến $x_1, x_2, \dots$
+- Chọn dấu của từng biến (**≥ 0**, **≤ 0**, hoặc **tự do**).
+- Nhập từng ràng buộc: các hệ số, dấu (**≤ / ≥ / =**), và vế phải.
 
-#### 2.3 Nhập hàm mục tiêu
-Trong khung **Hàm mục tiêu**:
-- chọn **max** hoặc **min**;
-- nhập hệ số tương ứng cho từng biến `x1, x2, ...`
+Có thể dùng phím **Tab** để chuyển giữa các ô, hoặc dùng **cuộn chuột** để xem toàn bộ bảng khi có nhiều ràng buộc.
 
-Ví dụ:
-- `max Z = 3x1 + 2x2`
-- `min Z = 5x1 - 7x2`
+Ngoài ra, có thể chọn **Nhập CSV** để nhập các bài toán đã được lưu trước đó, hoặc các bài toán mẫu.
 
-#### 2.4 Nhập dấu của biến
-Ở phần dấu biến:
-- chọn `≥0` nếu biến không âm;
-- chọn `≤0` nếu biến không dương;
-- chọn `tự do` nếu biến không bị ràng buộc dấu.
+Mẹo: Nhấn nút **Điền ví dụ** để tự động điền một trong 9 bài toán mẫu có sẵn, bao gồm các trường hợp: duy nhất nghiệm, vô số nghiệm, không giới nội, vô nghiệm, và xoay vòng. Hoặc nhập CSV với các mẫu test cases ở phụ lục, hoặc các file CSV đã được tải về trước đó (có định dạng phù hợp).
 
-#### 2.5 Nhập ràng buộc
-Trong khung **Ràng buộc**:
-- nhập hệ số từng biến trên mỗi dòng;
-- chọn dấu ràng buộc:
-  - `≤`
-  - `≥`
-  - `=`
-- nhập vế phải của ràng buộc.
+#### Bước 3: Chạy giải thuật
+Kiểm tra lại dữ liệu và nhấn nút **Chạy giải thuật (Ctrl+Alt+R)**. Phần mềm sẽ:
+- Giải song song bằng cả **Dantzig** và **Bland**.
+- Hiển thị khuyến nghị phương pháp phù hợp (**Dantzig / Bland / Hai Pha**) dựa trên cấu trúc bài toán.
+- Hiển thị toàn bộ lời giải trong khung **Lời giải** bên phải.
 
-Ví dụ:
-- `2x1 + x2 ≤ 10`
-- `x1 - x2 ≥ 3`
-- `x1 + x2 = 5`
+#### Bước 4: Xem lời giải theo phương pháp khác
+Ở khung **Tham chiếu Phương pháp giải**, chọn phương pháp muốn xem (**Dantzig / Bland / Hai Pha**) rồi nhấn **Hiển thị lời giải phương pháp đã chọn**. Các phương pháp không phù hợp với bài toán hiện tại sẽ bị mờ.
+
+#### Bước 5: Xuất kết quả
+Sau khi có lời giải, các nút sau được kích hoạt:
+- **Xuất .txt**: lưu lời giải ra file văn bản.
+- **Xem HTML**: hiển thị báo cáo HTML có công thức đẹp và mở trong trình duyệt.
+- **Hiện từ vựng**: mở cửa sổ **Animator** để xem lại từng bước xoay.
+- **Trực quan hóa**: mở đồ thị **2D (2 biến)** hoặc **3D (3 biến)**.
+
+Ngoài ra, để lưu bài toán lại thì có thể chọn **Xuất CSV**: lưu bài toán hiện tại ra file CSV để dùng lại sau.
 
 ---
 
-### 3. Dùng nút điền ví dụ
-
-Trong khung **Thiết lập**, tại mục **Mẫu**, người dùng có thể chọn một trong các ví dụ có sẵn:
-
-- **Ví dụ giải bằng 2 pha**
-- **Ví dụ giải bài toán xoay vòng**
-- **Ví dụ giải bài toán vô số nghiệm**
-
-Sau đó bấm:
-- **Điền ví dụ**
-
-Chương trình sẽ tự điền dữ liệu tương ứng vào bảng nhập.
-
----
-
-### 4. Chạy giải thuật
-
-Bấm:
-- **Chạy giải thuật (Ctrl+Alt+R)**
-
-Kết quả sẽ xuất hiện trong khung **Lời giải**, bao gồm:
-- bài toán gốc;
-- quá trình chuẩn hóa;
-- các bước đơn hình;
-- các phép chọn biến vào/ra;
-- kết luận cuối cùng.
-
-Nếu bài toán thuộc loại đặc biệt, chương trình cũng sẽ thông báo tương ứng:
-- không có nghiệm tối ưu;
-- không giới nội;
-- xoay vòng;
-- nhiều nghiệm tối ưu.
-
----
-
-### 5. Xuất file .txt và xem báo cáo HTML
-
-Nút **Xuất file .txt** chỉ hoạt động khi đã có lời giải, có thể xem báo cáo HTML bằng nút **Xem HTML**.
-
-#### Trường hợp chưa giải bài toán
-- nút ở trạng thái khóa;
-- màu xám;
-- không xuất được file.
-
-#### Trường hợp đã giải xong
-- nút chuyển sang trạng thái cho phép bấm;
-- màu xanh lá;
-- bấm vào sẽ mở hộp thoại lưu file.
-
-Khi lưu:
-- đặt tên file bất kỳ;
-- mặc định phần mở rộng là `.txt`;
-- nội dung file chính là phần lời giải đang hiển thị trên màn hình.
-
----
-
-### 6. Trực quan hóa bài toán
+### 3. Trực quan hóa bài toán
 
 Ứng dụng hỗ trợ hai loại trực quan:
 
@@ -324,7 +316,7 @@ Người dùng có thể:
 
 ---
 
-### 7. Những lưu ý khi sử dụng
+### 4. Những lưu ý khi sử dụng
 
 - Nên nhập số hợp lệ, tránh để trống ô quan trọng;
 - Với dữ liệu phân số, nên nhập đúng định dạng `a/b`;
@@ -359,6 +351,7 @@ Người dùng có thể:
 - `models.py`: định nghĩa các dataclass dùng chung
 - `utils.py`: các hàm tiện ích xử lý số và định dạng, trợ giúp in biểu thức
 - `html_exporter.py`: xuất lời giải sang HTML đẹp
+- `animator.py`: trình chiếu từng bước giải đơn hình, giúp xem lại bảng từ điển và các biến vào/ra một cách trực quan
 - `viz3d.py`: trực quan hóa 3D cho bài toán 3 biến
 - `reference_original.py`: phiên bản tham khảo/mã gốc không chạy chính
 - `requirements.txt`: liệt kê thư viện phụ thuộc
@@ -374,39 +367,3 @@ Người dùng có thể:
 - `matplotlib`, `numpy` để dùng tính năng trực quan hóa 3D
 - file `requirements.txt` chứa các thư viện phụ thuộc
 
-
-## Cách chạy 
-
-### Bước 1: Clone dự án
-
-```bash
-git clone https://github.com/vngthdat206/LinearProgrammingTool_byVC
-cd LinearProgrammingTool_byVC
-
-```
-
-### Bước 2: Tạo môi trường ảo
-
-```bash
-py -m venv .venv
-```
-
-### Bước 3: Kích hoạt môi trường ảo
-
-```bash
-.venv\Scripts\activate
-```
-
-### Bước 4: Cài đặt thư viện
-
-```bash
-py -m pip install --upgrade pip
-py -m pip install -r requirements.txt
-
-```
-
-### Bước 5: Chạy chương trình
-
-```bash
-py main.py
-```
