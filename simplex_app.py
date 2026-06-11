@@ -1234,9 +1234,9 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 A_ub, b_ub, A_eq, b_eq = [], [], [], []
                 for a, b, rhs, sense, _ in halfplanes:
                     fa, fb, fc = float(a), float(b), float(rhs)
-                    if sense == "<=":
+                    if sense in ("<=", "≤"):
                         A_ub.append([fa, fb]); b_ub.append(fc)
-                    elif sense == ">=":
+                    elif sense in (">=", "≥"):
                         A_ub.append([-fa, -fb]); b_ub.append(-fc)
                     else:
                         A_eq.append([fa, fb]); b_eq.append(fc)
