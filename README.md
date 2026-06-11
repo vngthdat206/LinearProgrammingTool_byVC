@@ -351,6 +351,7 @@ Người dùng có thể:
 - `models.py`: định nghĩa các dataclass dùng chung
 - `utils.py`: các hàm tiện ích xử lý số và định dạng, trợ giúp in biểu thức
 - `html_exporter.py`: xuất lời giải sang HTML đẹp
+- `animator.py`: trình chiếu từng bước giải đơn hình, giúp xem lại bảng từ điển và các biến vào/ra một cách trực quan
 - `viz3d.py`: trực quan hóa 3D cho bài toán 3 biến
 - `reference_original.py`: phiên bản tham khảo/mã gốc không chạy chính
 - `requirements.txt`: liệt kê thư viện phụ thuộc
