@@ -608,101 +608,239 @@ def _conclusion_html(report: SolveReport, engine, mode: str) -> str:
                 if report.phase2_trace and report.phase2_trace.final_snapshot
                 else report.dantzig.final_snapshot)
         if snap:
-            free_vars = report.multiple_optimal_vars
-            free_set  = set(free_vars)
-            free_names_tex = [_tex_var(snap.all_names[j]) for j in free_vars]
+            base_free_vars: List[int] = report.multiple_optimal_vars
             aux_idx = getattr(engine, "phase1_aux_var_index", None)
             art_set = set(engine.artificial_vars)
             basis_list = list(snap.basis)
             basis_set  = set(basis_list)
-
-            # ── Map std → x_i display name ──────────────────────────────
-            std_to_xname: dict = {}
-            for orig_idx, mapping in enumerate(engine.variable_mapping):
-                xn = f"x_{{{orig_idx+1}}}"
-                if len(mapping) == 1:
-                    std_to_xname[mapping[0][0]] = xn
-                elif len(mapping) == 2:
-                    std_to_xname[mapping[0][0]] = xn
-                    std_to_xname[mapping[1][0]] = xn
-
-            # ── Tính xi_expr: x_i → (const, {fv: coef}) ────────────────
             n_orig = len(engine.problem.var_signs)
+
+            # ── Expand split pairs (biến tự do x_i = a_i - b_i) ─────────────
+            # Replicate logic from simplex_app._expand_free_vars_with_splits
+            split_free_pairs: List[Tuple] = []  # (orig_idx, ja, jb, which)
+            base_set = set(base_free_vars)
+            extra: List[int] = []
+            for orig_idx, mapping in enumerate(engine.variable_mapping):
+                if len(mapping) != 2:
+                    continue
+                ja, mc_a = mapping[0]
+                jb, mc_b = mapping[1]
+                # Check if both are phi-co-so
+                ja_nonbasic = (ja not in basis_set)
+                jb_nonbasic = (jb not in basis_set)
+                if ja in base_set and jb_nonbasic:
+                    split_free_pairs.append((orig_idx, ja, jb, "a"))
+                elif jb in base_set and ja_nonbasic:
+                    split_free_pairs.append((orig_idx, ja, jb, "b"))
+                elif ja in base_set and jb in base_set:
+                    split_free_pairs.append((orig_idx, ja, jb, "ab"))
+                elif ja_nonbasic and jb_nonbasic and (ja in base_set or jb in base_set):
+                    which = "a" if ja in base_set else "b"
+                    split_free_pairs.append((orig_idx, ja, jb, which))
+
+            ai_set = {ja for _, ja, jb, _ in split_free_pairs}
+            bi_set = {jb for _, ja, jb, _ in split_free_pairs}
+
+            # free_vars = base_free_vars + any extra (partner of split not already there)
+            extra_set: set = set()
+            for _, ja, jb, which in split_free_pairs:
+                if ja not in base_set and ja not in extra_set:
+                    extra_set.add(ja); extra.append(ja)
+                if jb not in base_set and jb not in extra_set:
+                    extra_set.add(jb); extra.append(jb)
+            free_vars = list(base_free_vars) + extra
+            free_set  = set(free_vars)
+
+            ab_free_orig = {oi for oi, ja, jb, which in split_free_pairs if which == "ab"}
+
+            # ── xi_expr[orig_idx] = (const, {fv: coef}) ──────────────────────
             xi_expr: dict = {}
             for orig_idx, mapping in enumerate(engine.variable_mapping):
                 const_v = Fraction(0)
-                fv_coefs = {fv: Fraction(0) for fv in free_vars}
+                fv_coefs: Dict[int, Fraction] = {fv: Fraction(0) for fv in free_vars}
                 for j, mc in mapping:
                     if j in basis_set:
                         ri = basis_list.index(j)
                         const_v += mc * snap.rhs[ri]
                         for fv in free_vars:
-                            fv_coefs[fv] += mc * snap.rows[ri].get(fv, Fraction(0))
+                            fv_coefs[fv] = fv_coefs.get(fv, Fraction(0)) + mc * snap.rows[ri].get(fv, Fraction(0))
                     elif j in free_set:
                         fv_coefs[j] = fv_coefs.get(j, Fraction(0)) + mc
                 xi_expr[orig_idx] = (const_v, fv_coefs)
 
-            # ── Nghiệm tối ưu ────────────────────────────────────────────
+            # ── Helper: gộp a_i/b_i → x_i trong danh sách term ──────────────
+            def to_xi_terms_html(orig_idx2: int):
+                c2, t2 = xi_expr[orig_idx2]
+                remaining: Dict[int, Fraction] = {fv: v for fv, v in t2.items() if v != 0}
+                result_terms: list = []
+                for oi2, ja2, jb2, _ in split_free_pairs:
+                    ca = remaining.get(ja2, Fraction(0))
+                    cb = remaining.get(jb2, Fraction(0))
+                    if ca == 0 and cb == 0:
+                        continue
+                    if cb == -ca:
+                        if ca != 0:
+                            result_terms.append((ca, f"x_{{{oi2+1}}}"))
+                        remaining.pop(ja2, None); remaining.pop(jb2, None)
+                    else:
+                        if ca != 0:
+                            result_terms.append((ca, _tex_var(snap.all_names[ja2])))
+                            remaining.pop(ja2, None)
+                        if cb != 0:
+                            result_terms.append((cb, _tex_var(snap.all_names[jb2])))
+                            remaining.pop(jb2, None)
+                for fv2, coef2 in remaining.items():
+                    if coef2 != 0:
+                        result_terms.append((coef2, _tex_var(snap.all_names[fv2])))
+                return c2, result_terms
+
+            def fmt_xi_expr(orig_idx2: int) -> str:
+                c2, terms = to_xi_terms_html(orig_idx2)
+                ps = []
+                if c2 != 0 or not terms:
+                    ps.append(_frac(c2, mode))
+                for coef2, var_tex in terms:
+                    abs_c = abs(coef2)
+                    sign = "+" if coef2 > 0 else "-"
+                    body = f"\\,{var_tex}" if abs_c == 1 else f"\\,{_frac(abs_c, mode)}{var_tex}"
+                    ps.append(f"{sign}{body}")
+                s = " ".join(ps).lstrip("+").strip()
+                return s or "0"
+
+            # ── Nghiệm tối ưu ────────────────────────────────────────────────
             parts.append("<p><b>Nghiệm tối ưu là:</b></p><ul>")
             for orig_idx in range(n_orig):
-                const_v, fv_coefs = xi_expr[orig_idx]
-                terms_tex = []
-                for fv in free_vars:
-                    c = fv_coefs.get(fv, Fraction(0))
-                    if c != 0:
-                        terms_tex.append(_term(c, snap.all_names[fv], mode))
-                rhs_parts = ([_frac(const_v, mode)] if const_v != 0 or not terms_tex else []) + terms_tex
-                rhs_str = " ".join(rhs_parts).lstrip("+").strip() or "0"
-                parts.append(f"<li>$x_{{{orig_idx+1}}} = {rhs_str}$</li>")
+                if orig_idx in ab_free_orig:
+                    xi_tex = f"x_{{{orig_idx+1}}}"
+                    parts.append(f"<li>${xi_tex} = {xi_tex}$ &nbsp; (tự do, $x_{{{orig_idx+1}}} \\in \\mathbb{{R}}$)</li>")
+                else:
+                    expr_str = fmt_xi_expr(orig_idx)
+                    parts.append(f"<li>$x_{{{orig_idx+1}}} = {expr_str}$</li>")
             parts.append("</ul>")
 
-            # ── Điều kiện ────────────────────────────────────────────────
-            if len(free_vars) == 1:
-                param_idx  = free_vars[0]
-                param_tex  = free_names_tex[0]
-                lowers: list = [Fraction(0)]
-                uppers: list = []
-                for ri, b in enumerate(basis_list):
-                    if b in art_set or (aux_idx is not None and b == aux_idx):
-                        continue
-                    coef = snap.rows[ri].get(param_idx, Fraction(0))
-                    if coef == 0:
-                        continue
-                    bound = -snap.rhs[ri] / coef
-                    if coef > 0:
-                        lowers.append(bound)
-                    else:
-                        uppers.append(bound)
-                lower = max(lowers)
-                if uppers:
-                    upper = min(uppers)
-                    cond_tex = f"${_frac(lower, mode)} \\leq {param_tex} \\leq {_frac(upper, mode)}$"
+            # ── Điều kiện ────────────────────────────────────────────────────
+            # n_real_params: số tham số thực sự (mỗi split-ab pair = 1; non-split free = 1)
+            non_split_free = [fv for fv in free_vars if fv not in ai_set and fv not in bi_set]
+            ab_pairs = [(oi, ja, jb) for oi, ja, jb, which in split_free_pairs if which == "ab"]
+            n_real_params = len(ab_pairs) + len(non_split_free)
+
+            if n_real_params == 1:
+                if ab_pairs:
+                    oi_p, ja_p, jb_p = ab_pairs[0]
+                    param_tex = f"x_{{{oi_p+1}}}"
+                    lowers2: list = []
+                    uppers2: list = []
+                    for ri, b in enumerate(basis_list):
+                        if b in art_set or (aux_idx is not None and b == aux_idx):
+                            continue
+                        if b in ai_set or b in bi_set:
+                            continue
+                        ca = snap.rows[ri].get(ja_p, Fraction(0))
+                        cb = snap.rows[ri].get(jb_p, Fraction(0))
+                        if ca == 0 and cb == 0:
+                            continue
+                        if cb == -ca and ca != 0:
+                            bound = -snap.rhs[ri] / ca
+                            if ca > 0:
+                                lowers2.append(bound)
+                            else:
+                                uppers2.append(bound)
+                    lower2 = max(lowers2) if lowers2 else None
+                    upper2 = min(uppers2) if uppers2 else None
+                    if lower2 is not None and upper2 is not None:
+                        cond_tex = f"${_frac(lower2, mode)} \\leq {param_tex} \\leq {_frac(upper2, mode)}$"
+                        parts.append(f"<p>với {cond_tex}.</p>")
+                    elif lower2 is not None:
+                        if lower2 == 0:
+                            parts.append(f"<p>với ${param_tex} \\geq 0$.</p>")
+                        else:
+                            parts.append(f"<p>với ${param_tex} \\geq {_frac(lower2, mode)}$.</p>")
+                    elif upper2 is not None:
+                        parts.append(f"<p>với ${param_tex} \\leq {_frac(upper2, mode)}$.</p>")
+                    # else: hoàn toàn tự do, không in điều kiện
                 else:
-                    cond_tex = f"${param_tex} \\geq {_frac(lower, mode)}$"
-                parts.append(f"<p>với {cond_tex}.</p>")
+                    param_idx2 = non_split_free[0]
+                    param_tex2 = _tex_var(snap.all_names[param_idx2])
+                    lowers3: list = [Fraction(0)]
+                    uppers3: list = []
+                    for ri, b in enumerate(basis_list):
+                        if b in art_set or b in ai_set or b in bi_set:
+                            continue
+                        if aux_idx is not None and b == aux_idx:
+                            continue
+                        coef = snap.rows[ri].get(param_idx2, Fraction(0))
+                        if coef == 0:
+                            continue
+                        bound = -snap.rhs[ri] / coef
+                        if coef > 0:
+                            lowers3.append(bound)
+                        else:
+                            uppers3.append(bound)
+                    lower3 = max(lowers3)
+                    if uppers3:
+                        upper3 = min(uppers3)
+                        cond_tex3 = f"${_frac(lower3, mode)} \\leq {param_tex2} \\leq {_frac(upper3, mode)}$"
+                    else:
+                        cond_tex3 = f"${param_tex2} \\geq {_frac(lower3, mode)}$"
+                    parts.append(f"<p>với {cond_tex3}.</p>")
             else:
+                # Nhiều tham số: liệt kê điều kiện cho từng hàng và từng free var
                 cond_parts_tex = []
                 seen_rows: set = set()
+
+                # Helper gộp a/b → x_i cho hàng ràng buộc
+                def row_to_xi_terms_html(t_row: dict):
+                    remaining2 = {fv: v for fv, v in t_row.items() if v != 0}
+                    result2: list = []
+                    for oi2, ja2, jb2, _ in split_free_pairs:
+                        ca = remaining2.get(ja2, Fraction(0))
+                        cb = remaining2.get(jb2, Fraction(0))
+                        if ca == 0 and cb == 0:
+                            continue
+                        if cb == -ca:
+                            if ca != 0:
+                                result2.append((ca, f"x_{{{oi2+1}}}"))
+                            remaining2.pop(ja2, None); remaining2.pop(jb2, None)
+                        else:
+                            if ca != 0:
+                                result2.append((ca, _tex_var(snap.all_names[ja2])))
+                                remaining2.pop(ja2, None)
+                            if cb != 0:
+                                result2.append((cb, _tex_var(snap.all_names[jb2])))
+                                remaining2.pop(jb2, None)
+                    for fv2, coef2 in remaining2.items():
+                        if coef2 != 0:
+                            result2.append((coef2, _tex_var(snap.all_names[fv2])))
+                    return result2
+
                 for ri, b in enumerate(basis_list):
                     if b in art_set or (aux_idx is not None and b == aux_idx):
                         continue
-                    has_free = any(snap.rows[ri].get(fv, Fraction(0)) != 0 for fv in free_vars)
-                    if not has_free or ri in seen_rows:
+                    if b in ai_set or b in bi_set or ri in seen_rows:
                         continue
                     seen_rows.add(ri)
-                    t_parts = []
-                    rhs_v = snap.rhs[ri]
-                    if rhs_v != 0:
-                        t_parts.append(_frac(rhs_v, mode))
-                    for fv in free_vars:
-                        c = snap.rows[ri].get(fv, Fraction(0))
-                        if c != 0:
-                            t_parts.append(_term(c, snap.all_names[fv], mode))
-                    expr_tex = " ".join(t_parts).lstrip("+").strip() or "0"
-                    cond_parts_tex.append(f"${expr_tex} \\geq 0$")
-                for fn_tex in free_names_tex:
-                    cond_parts_tex.append(f"${fn_tex} \\geq 0$")
-                parts.append(f"<p>với {'; '.join(cond_parts_tex)}.</p>")
+                    t_row = {fv: snap.rows[ri].get(fv, Fraction(0)) for fv in free_vars}
+                    if not any(v != 0 for v in t_row.values()):
+                        continue
+                    terms2 = row_to_xi_terms_html(t_row)
+                    if terms2:
+                        ps2 = []
+                        rhs_v = snap.rhs[ri]
+                        if rhs_v != 0:
+                            ps2.append(_frac(rhs_v, mode))
+                        for coef2, var_tex in terms2:
+                            abs_c = abs(coef2)
+                            sign = "+" if coef2 > 0 else "-"
+                            body = f"\\,{var_tex}" if abs_c == 1 else f"\\,{_frac(abs_c, mode)}{var_tex}"
+                            ps2.append(f"{sign}{body}")
+                        expr2 = " ".join(ps2).lstrip("+").strip() or "0"
+                        cond_parts_tex.append(f"${expr2} \\geq 0$")
+
+                for fv in non_split_free:
+                    cond_parts_tex.append(f"${_tex_var(snap.all_names[fv])} \\geq 0$")
+
+                if cond_parts_tex:
+                    parts.append(f"<p>với {'; '.join(cond_parts_tex)}.</p>")
     else:
         parts.append("<p><b>Nghiệm tối ưu là:</b></p><ul>")
         for i in range(len(engine.problem.var_signs)):
