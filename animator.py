@@ -257,9 +257,14 @@ class SimplexAnimator(tk.Toplevel):
         self._matrix_frame.bind("<Configure>", self._on_matrix_configure)
         self._canvas.bind("<Configure>", self._on_canvas_configure)
 
-        # Mouse-wheel scroll
-        self._canvas.bind_all("<MouseWheel>",   self._on_mousewheel)
-        self._canvas.bind_all("<Shift-MouseWheel>", self._on_h_mousewheel)
+        # Mouse-wheel scroll (bind to canvas widget, not globally)
+        self._canvas.bind("<MouseWheel>",       self._on_mousewheel)
+        self._canvas.bind("<Shift-MouseWheel>", self._on_h_mousewheel)
+        # Also bind to the inner frame so scrolling works anywhere inside
+        self._matrix_frame.bind("<MouseWheel>",       self._on_mousewheel)
+        self._matrix_frame.bind("<Shift-MouseWheel>", self._on_h_mousewheel)
+        self.bind("<MouseWheel>",       self._on_mousewheel)
+        self.bind("<Shift-MouseWheel>", self._on_h_mousewheel)
 
         # 3. Media controls ───────────────────────────────────────────────────
         ctrl_frame = tk.Frame(self, bg=C_WIN_BG)
@@ -321,10 +326,18 @@ class SimplexAnimator(tk.Toplevel):
         )
 
     def _on_mousewheel(self, event: tk.Event) -> None:
-        self._canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        try:
+            if self._canvas.winfo_exists():
+                self._canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        except Exception:
+            pass
 
     def _on_h_mousewheel(self, event: tk.Event) -> None:
-        self._canvas.xview_scroll(int(-1 * (event.delta / 120)), "units")
+        try:
+            if self._canvas.winfo_exists():
+                self._canvas.xview_scroll(int(-1 * (event.delta / 120)), "units")
+        except Exception:
+            pass
 
     # ─────────────────────────────────────────────────────────────────────────
     # Navigation
