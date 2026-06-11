@@ -2403,7 +2403,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             return True
         if snapshot is None:
             return False
-        # Kiểm tra split pairs
+        # Kiểm tra split pairs: chỉ tính là vô số nghiệm nếu partner trong basis
         basis_set = set(snapshot.basis)
         art_set   = set(engine.artificial_vars)
         aux_idx   = getattr(engine, "phase1_aux_var_index", None)
@@ -2412,10 +2412,11 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             if len(mapping) != 2:
                 continue
             j_a, j_b = mapping[0][0], mapping[1][0]
-            for j in (j_a, j_b):
+            for j, partner in ((j_a, j_b), (j_b, j_a)):
                 if (j not in basis_set and j not in art_set
                         and j not in aux_set
-                        and snapshot.obj.get(j, Fraction(0)) == 0):
+                        and snapshot.obj.get(j, Fraction(0)) == 0
+                        and partner in basis_set):
                     return True
         return False
 
@@ -2426,32 +2427,37 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         aux_set   = {aux_idx} if aux_idx is not None else set()
         base_set  = set(base_free_vars)
 
-        # Quét thêm a_i/b_i phi cơ sở obj=0 chưa có trong base_free_vars
         extra: list[int] = []
         split_free_pairs = []
         for orig_idx, mapping in enumerate(engine.variable_mapping):
             if len(mapping) != 2:
                 continue
             j_a, j_b = mapping[0][0], mapping[1][0]
-            a_free = (j_a not in basis_set and j_a not in art_set
-                      and j_a not in aux_set
-                      and snapshot.obj.get(j_a, Fraction(0)) == 0)
-            b_free = (j_b not in basis_set and j_b not in art_set
-                      and j_b not in aux_set
-                      and snapshot.obj.get(j_b, Fraction(0)) == 0)
-            if not a_free and not b_free:
+            if j_a in art_set or j_b in art_set or j_a in aux_set or j_b in aux_set:
                 continue
-            # Đã có trong base rồi thì không thêm nữa
-            which = ""
-            if a_free and j_a not in base_set:
-                extra.append(j_a); which += "a"
-            if b_free and j_b not in base_set:
-                extra.append(j_b); which += "b"
-            if a_free and j_a in base_set:
-                which += "a"
-            if b_free and j_b in base_set:
-                which += "b"
-            if which:
+
+            a_nonbasic_zero = (j_a not in basis_set
+                               and snapshot.obj.get(j_a, Fraction(0)) == 0)
+            b_nonbasic_zero = (j_b not in basis_set
+                               and snapshot.obj.get(j_b, Fraction(0)) == 0)
+
+            if a_nonbasic_zero and b_nonbasic_zero:
+                # Cả hai phi cơ sở, obj=0 → cặp tự do hoàn toàn (trường hợp 1)
+                which = "ab"
+                if j_a not in base_set:
+                    extra.append(j_a)
+                if j_b not in base_set:
+                    extra.append(j_b)
+                split_free_pairs.append((orig_idx, j_a, j_b, which))
+            elif a_nonbasic_zero and j_b in basis_set:
+                which = "a"
+                if j_a not in base_set:
+                    extra.append(j_a)
+                split_free_pairs.append((orig_idx, j_a, j_b, which))
+            elif b_nonbasic_zero and j_a in basis_set:
+                which = "b"
+                if j_b not in base_set:
+                    extra.append(j_b)
                 split_free_pairs.append((orig_idx, j_a, j_b, which))
 
         all_free_vars = list(base_free_vars) + extra
@@ -2489,8 +2495,25 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         # (orig_idx → set of xi names đã được "split")
         split_orig_idxs = {oi for oi, *_ in split_free_pairs}
 
-        # Tên tham số tự do để in
-        free_names = [snapshot.all_names[j] for j in free_vars]
+        # Tên tham số tự do để in: gộp cặp (a_i, b_i) → x_i khi which == "ab"
+        free_names_display = []
+        seen_sfp_orig = set()
+        free_set_vars_for_display = set(free_vars)
+        for oi, ja, jb, which in split_free_pairs:
+            if oi in seen_sfp_orig:
+                continue
+            seen_sfp_orig.add(oi)
+            if which == "ab":
+                free_names_display.append(f"x{oi+1}")
+            elif which == "a":
+                free_names_display.append(snapshot.all_names[ja])
+            elif which == "b":
+                free_names_display.append(snapshot.all_names[jb])
+        # Thêm các biến tự do không phải split pair
+        split_j_set = {ja for _, ja, jb, _ in split_free_pairs} | {jb for _, ja, jb, _ in split_free_pairs}
+        for fv in free_vars:
+            if fv not in split_j_set:
+                free_names_display.append(snapshot.all_names[fv])
 
         # Biến phi cơ sở bị gán 0
         fixed_zero_names = [
@@ -2503,12 +2526,12 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         ]
 
         # ── Dòng mở đầu ─────────────────────────────────────────────────────
-        names_str = ", ".join(free_names)
+        names_str = ", ".join(free_names_display)
         fixed_str = (", ".join(fixed_zero_names) + " = 0") if fixed_zero_names else "(không có)"
-        if len(free_vars) == 1:
+        if len(free_names_display) == 1:
             lines = [
-                f"  Do hệ số trước {free_names[0]} bằng 0. Bài toán có vô số nghiệm.",
-                f"  Cho các biến không cơ sở (trừ {free_names[0]}) bằng 0: {fixed_str}",
+                f"  Do hệ số trước {free_names_display[0]} bằng 0. Bài toán có vô số nghiệm.",
+                f"  Cho các biến không cơ sở (trừ {free_names_display[0]}) bằng 0: {fixed_str}",
             ]
         else:
             lines = [
@@ -2528,6 +2551,21 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             else:
                 c = Fraction(0)
                 t = {fv: Fraction(0) for fv in free_vars}
+            return c, t
+
+        def xi_expr_calc(orig_idx, bl, snap, fvars, var_mapping, free_set):
+            """Tính x_orig_idx = Σ mc * (biến std) theo tham số tự do."""
+            c = Fraction(0)
+            t: Dict[int, Fraction] = {fv: Fraction(0) for fv in fvars}
+            mapping = var_mapping[orig_idx]
+            for j, mc in mapping:
+                if j in set(bl):
+                    ri_j = bl.index(j)
+                    c += mc * snap.rhs[ri_j]
+                    for fv in fvars:
+                        t[fv] = t.get(fv, Fraction(0)) + mc * snap.rows[ri_j].get(fv, Fraction(0))
+                elif j in free_set:
+                    t[j] = t.get(j, Fraction(0)) + mc
             return c, t
 
         # ── Tính biểu thức mỗi hàng basis theo tham số ──────────────────────
@@ -2598,8 +2636,14 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         # ── Điều kiện khả thi ────────────────────────────────────────────────
         lines.append("  Để nghiệm khả thi (các biến cơ sở ≥ 0), cần:")
 
-        # Mối hàng basis: in điều kiện, thay a_i/b_i bằng x_i nếu chúng gộp được
+        # ai_set / bi_set: tập chỉ số a_i / b_i trong split_free_pairs
+        ai_set_sfp = {ja for _, ja, jb, _ in split_free_pairs}
+        bi_set_sfp = {jb for _, ja, jb, _ in split_free_pairs}
+
         seen_cond: set = set()
+        # Tập các orig_idx đã suy ra x_i (để tránh in 2 lần)
+        xi_derived: set = set()
+
         for ri, b in enumerate(basis_list):
             if b in art_set or (aux_idx is not None and b == aux_idx):
                 continue
@@ -2612,16 +2656,65 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             c0, t0 = xname_expr[xn]
             has_dep = any(v != 0 for v in t0.values())
 
-            # Nếu là a_i với split: thay bằng x_i trong điều kiện
-            is_ai_row = any(b == ja for _, ja, jb, _ in split_free_pairs)
-            if is_ai_row:
-                # x_i = a_i - b_i → điều kiện x_i = expr theo xi biến
-                expr_str = linear_xi(c0, t0)
-                # Nếu không có tham số → hằng số, không cần in
-                if not has_dep and c0 >= 0:
-                    lines.append(f"    {xn} = {fmt_num(c0, mode)} ≥ 0  ✓")
+            # Kiểm tra xem đây có phải hàng a_i hay b_i trong split_free_pairs không
+            is_ai_row = b in ai_set_sfp
+            is_bi_row = b in bi_set_sfp
+
+            if is_ai_row or is_bi_row:
+                # Tìm orig_idx của cặp split này
+                the_oi = None
+                the_ja = the_jb = None
+                for oi2, ja2, jb2, _ in split_free_pairs:
+                    if b == ja2 or b == jb2:
+                        the_oi = oi2; the_ja = ja2; the_jb = jb2
+                        break
+
+                if the_oi is None:
+                    continue
+
+                # Tên của biến cơ sở (a_i hoặc b_i)
+                b_name_std = snapshot.all_names[b]
+
+                # Xây dựng biểu thức của biến cơ sở này (theo tham số tự do)
+                # Sử dụng trực tiếp rhs[ri] và row[ri] thay vì xname_expr (đã gộp sign)
+                sign_b = Fraction(1)
+                for mapping in engine.variable_mapping:
+                    if len(mapping) == 2 and mapping[1][0] == b:
+                        sign_b = Fraction(-1); break
+                # Nếu sign_b = -1 → đây là b_i → b_i = rhs[ri] + ...
+                # xname_expr đã gộp cả hai a_i và b_i nếu cả hai trong basis
+                # Nên ta dùng trực tiếp snapshot.rhs[ri] và snapshot.rows[ri] cho hàng này
+                raw_c = snapshot.rhs[ri]
+                raw_t = {fv: snapshot.rows[ri].get(fv, Fraction(0)) for fv in free_vars}
+                raw_has_dep = any(v != 0 for v in raw_t.values())
+
+                # Xây dựng chuỗi biểu thức (dạng a_i / b_i)
+                raw_terms = [(v, snapshot.all_names[fv]) for fv, v in raw_t.items() if v != 0]
+                expr_raw = self._linear_text(raw_c, raw_terms, mode)
+
+                if not raw_has_dep and raw_c >= 0:
+                    lines.append(f"    {b_name_std} = {fmt_num(raw_c, mode)} ≥ 0  ✓")
                 else:
-                    lines.append(f"    {xn} = {expr_str} ≥ 0")
+                    lines.append(f"    {b_name_std} = {expr_raw} ≥ 0")
+
+                # Suy ra x_i = a_i - b_i (chỉ in 1 lần mỗi cặp)
+                if the_oi not in xi_derived:
+                    xi_derived.add(the_oi)
+                    # Tính x_i = a_i - b_i đúng cách: duyệt mapping
+                    mapping_oi = engine.variable_mapping[the_oi]
+                    xi_c = Fraction(0)
+                    xi_t: Dict[int, Fraction] = {fv: Fraction(0) for fv in free_vars}
+                    for j_m, mc_m in mapping_oi:
+                        if j_m in basis_set:
+                            ri_m = basis_list.index(j_m)
+                            xi_c += mc_m * snapshot.rhs[ri_m]
+                            for fv in free_vars:
+                                xi_t[fv] = xi_t.get(fv, Fraction(0)) + mc_m * snapshot.rows[ri_m].get(fv, Fraction(0))
+                        elif j_m in free_set_vars:
+                            xi_t[j_m] = xi_t.get(j_m, Fraction(0)) + mc_m
+                    xi_terms_list = [(v, snapshot.all_names[fv]) for fv, v in xi_t.items() if v != 0]
+                    xi_expr_str = self._linear_text(xi_c, xi_terms_list, mode)
+                    lines.append(f"    → x{the_oi+1} = {xi_expr_str}")
             else:
                 if not has_dep:
                     if c0 >= 0:
@@ -2630,6 +2723,21 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                     expr_str = linear_xi(c0, t0)
                     lines.append(f"    {xn} = {expr_str} ≥ 0")
 
+        # Điều kiện cho cặp (a_i, b_i) cả hai phi cơ sở (which == "ab")
+        for oi2, ja2, jb2, which2 in split_free_pairs:
+            if which2 != "ab":
+                continue
+            if oi2 in xi_derived:
+                continue
+            xi_derived.add(oi2)
+            # a_i = 0 + a_i (tự do), b_i = 0 + b_i (tự do)
+            # Biến cơ sở không phụ thuộc vào a_i, b_i → không có ràng buộc thêm
+            # Chỉ cần nêu điều kiện: a_i, b_i ≥ 0 → x_i = a_i - b_i tự do
+            a_name = snapshot.all_names[ja2]
+            b_name = snapshot.all_names[jb2]
+            lines.append(f"    {a_name} ≥ 0, {b_name} ≥ 0 (tự do)")
+            lines.append(f"    → x{oi2+1} = {a_name} - {b_name} tự do")
+
         # Điều kiện các tham số phi cơ sở (không phải a_i/b_i)
         non_split_free = [fv for fv in free_vars
                           if not any(ja == fv or jb == fv
@@ -2637,11 +2745,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         if non_split_free:
             for fv in non_split_free:
                 lines.append(f"    {snapshot.all_names[fv]} ≥ 0")
-
-        # Điều kiện a_i/b_i ≥ 0 — chỉ ghi chú nếu chưa gộp thành x_i
-        if split_free_pairs:
-            xi_parts = ", ".join(f"x{oi+1} = a{oi+1} - b{oi+1}" for oi, *_ in split_free_pairs)
-            lines.append(f"  Kết hợp với ràng buộc dấu: {xi_parts}, a_i, b_i ≥ 0")
 
         return lines
 
@@ -2718,10 +2821,16 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             return c, result_terms
 
         # ── In nghiệm tối ưu ─────────────────────────────────────────────────
+        # Tập orig_idx có which == "ab" (tham số tự do hoàn toàn)
+        ab_free_orig = {oi for oi, ja, jb, which in split_free_pairs if which == "ab"}
+
         lines = ["  Nghiệm tối ưu là:"]
         for orig_idx in range(n_orig):
-            c, terms = to_xi_terms(orig_idx)
-            lines.append(f"  - x{orig_idx+1} = {self._linear_text(c, terms, mode)}")
+            if orig_idx in ab_free_orig:
+                lines.append(f"  - x{orig_idx+1} = x{orig_idx+1}  (tự do, x{orig_idx+1} ∈ ℝ)")
+            else:
+                c, terms = to_xi_terms(orig_idx)
+                lines.append(f"  - x{orig_idx+1} = {self._linear_text(c, terms, mode)}")
 
         cond_parts = []
 
@@ -2774,8 +2883,9 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         for fv in non_split_free:
             cond_parts.append(f"{snapshot.all_names[fv]} ≥ 0")
 
-        # Rút gọn khoảng nếu chỉ có 1 tham số không phải split
-        if len(non_split_free) == 1 and not split_free_pairs:
+        # Rút gọn khoảng nếu chỉ có đúng 1 tham số thực sự
+        # (1 non-split param, dù có hay không có split pairs)
+        if len(non_split_free) == 1:
             param_idx = non_split_free[0]
             param_name = snapshot.all_names[param_idx]
             lowers, uppers = [Fraction(0)], []
@@ -2800,7 +2910,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                     f"{fmt_num(lower, mode)} ≤ {param_name} ≤ {fmt_num(upper, mode)}")
             else:
                 cond_parts_rut.append(f"{param_name} ≥ {fmt_num(lower, mode)}")
-            # Thay cond_parts bằng phiên bản rút gọn
             cond_parts = cond_parts_rut
 
         if cond_parts:

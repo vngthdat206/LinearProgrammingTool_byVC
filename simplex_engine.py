@@ -816,9 +816,73 @@ class SimplexEngine:
             aux_set.add(self.phase1_aux_var_index)
 
         basis_set = set(snapshot.basis)
+
+        # Xây dựng split_pairs: (j_a, j_b) cho mỗi biến tự do gốc
+        split_pairs: List[Tuple[int, int]] = []
+        for mapping in self.variable_mapping:
+            if len(mapping) == 2:
+                j1, j2 = mapping[0][0], mapping[1][0]
+                split_pairs.append((j1, j2))
+
+        # Xây dựng tập split pairs: (j_a, j_b) cho mỗi biến tự do x_i = a_i - b_i
+        split_pair_set: set = set()
+        for j1, j2 in split_pairs:
+            split_pair_set.add((j1, j2))
+
+        # Biến nào đã được xử lý qua cặp split (tránh duyệt 2 lần)
+        already_processed: set = set()
+
         multiple = False
         free_vars: List[int] = []
+
+        # Bước 1: xử lý split pairs (a_i, b_i) trước
+        for j1, j2 in split_pairs:
+            # Bỏ qua nếu bất kỳ bên nào là artificial/aux
+            if j1 in art_set or j2 in art_set or j1 in aux_set or j2 in aux_set:
+                already_processed.update([j1, j2])
+                continue
+
+            j1_free = (j1 not in basis_set and snapshot.obj.get(j1, Fraction(0)) == 0)
+            j2_free = (j2 not in basis_set and snapshot.obj.get(j2, Fraction(0)) == 0)
+
+            if j1_free and j2_free:
+                # Cả hai phi cơ sở, obj=0 → cặp tự do hoàn toàn (x_i = a_i - b_i tự do)
+                # → vô số nghiệm; cả hai đều là tham số tự do
+                # Kiểm tra khả thi: cột j1
+                col1 = [row.get(j1, Fraction(0)) for row in snapshot.rows]
+                neg1 = [snapshot.rhs[i] / (-a) for i, a in enumerate(col1) if a < 0]
+                col2 = [row.get(j2, Fraction(0)) for row in snapshot.rows]
+                neg2 = [snapshot.rhs[i] / (-a) for i, a in enumerate(col2) if a < 0]
+                if (not neg1 or min(neg1) > 0) and (not neg2 or min(neg2) > 0):
+                    multiple = True
+                    free_vars.append(j1)
+                    free_vars.append(j2)
+                already_processed.update([j1, j2])
+
+            elif j1_free and j2 in basis_set:
+                # a_i phi cơ sở, b_i cơ sở → x_i có thể thay đổi
+                col = [row.get(j1, Fraction(0)) for row in snapshot.rows]
+                neg_ratios = [snapshot.rhs[i] / (-a) for i, a in enumerate(col) if a < 0]
+                if not neg_ratios or min(neg_ratios) > 0:
+                    multiple = True
+                    free_vars.append(j1)
+                already_processed.update([j1, j2])
+
+            elif j2_free and j1 in basis_set:
+                # b_i phi cơ sở, a_i cơ sở → x_i có thể thay đổi
+                col = [row.get(j2, Fraction(0)) for row in snapshot.rows]
+                neg_ratios = [snapshot.rhs[i] / (-a) for i, a in enumerate(col) if a < 0]
+                if not neg_ratios or min(neg_ratios) > 0:
+                    multiple = True
+                    free_vars.append(j2)
+                already_processed.update([j1, j2])
+            else:
+                already_processed.update([j1, j2])
+
+        # Bước 2: biến thường (không phải split pair)
         for j in range(len(self.all_names)):
+            if j in already_processed:
+                continue
             if j in basis_set:
                 continue
             if j in art_set:
@@ -827,9 +891,6 @@ class SimplexEngine:
                 continue
             if snapshot.obj.get(j, Fraction(0)) != 0:
                 continue
-            if j in split_partner:
-                if split_partner[j] not in basis_set:
-                    continue
 
             col = [row.get(j, Fraction(0)) for row in snapshot.rows]
             neg_ratios = [
