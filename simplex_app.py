@@ -241,7 +241,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             command=self.open_solution_html,
         )
         self.html_btn.grid(row=0, column=1, sticky="ew", padx=(0, 3))
-        self.html_btn.bind("<Enter>", lambda e: self._on_button_enter(e, "#0F766E"))
+        self.html_btn.bind("<Enter>", lambda e: self._on_button_enter(e, "#5B21B6"))
         self.html_btn.bind("<Leave>", lambda e: self._on_button_leave(e, "#CBD5E1"))
 
         self.animate_btn = tk.Button(
@@ -254,7 +254,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             command=self._open_animator,
         )
         self.animate_btn.grid(row=0, column=2, sticky="ew", padx=(0, 3))
-        self.animate_btn.bind("<Enter>", lambda e: self._on_button_enter(e, "#7C3AED"))
+        self.animate_btn.bind("<Enter>", lambda e: self._on_button_enter(e, "#D97706"))
         self.animate_btn.bind("<Leave>", lambda e: self._on_button_leave(e, "#CBD5E1"))
 
         # Nút trực quan hóa – màu/nhãn cập nhật động qua _update_viz_btn_state()
@@ -306,27 +306,27 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         self.import_csv_btn = tk.Button(
             bot_row, text="📥  Nhập CSV",
             font=("Segoe UI", 9, "bold"),
-            bg="#7C3AED", fg="white",
-            activebackground="#6D28D9", activeforeground="white",
+            bg="#0D9488", fg="white",
+            activebackground="#0F766E", activeforeground="white",
             relief="flat", bd=0, padx=6, pady=6,
             cursor="hand2",
             command=self.import_from_csv,
         )
         self.import_csv_btn.grid(row=0, column=2, sticky="ew", padx=(0, 3))
-        self.import_csv_btn.bind("<Enter>", lambda e: self._on_button_enter(e, "#6D28D9"))
-        self.import_csv_btn.bind("<Leave>", lambda e: self._on_button_leave(e, "#7C3AED"))
+        self.import_csv_btn.bind("<Enter>", lambda e: self._on_button_enter(e, "#0F766E"))
+        self.import_csv_btn.bind("<Leave>", lambda e: self._on_button_leave(e, "#0D9488"))
 
         self.export_csv_btn = tk.Button(
             bot_row, text="📤  Xuất CSV",
             font=("Segoe UI", 9, "bold"),
-            bg="#0891B2", fg="white",
-            activebackground="#0E7490", activeforeground="white",
+            bg="#185FA5", fg="white",
+            activebackground="#1E3A5F", activeforeground="white",
             relief="flat", bd=0, padx=6, pady=6,
             cursor="hand2",
             command=self.export_to_csv,
         )
         self.export_csv_btn.grid(row=0, column=3, sticky="ew")
-        self.export_csv_btn.bind("<Enter>", lambda e: self._on_button_enter(e, "#0E7490"))
+        self.export_csv_btn.bind("<Enter>", lambda e: self._on_button_enter(e, "#1E3A5F"))
         self.export_csv_btn.bind("<Leave>", lambda e: self._on_button_leave(e, "#0891B2"))
 
         self.viz3d_btn = None
@@ -768,8 +768,8 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         # Bật/tắt nút "Xuất file .txt" và "Xem HTML" tùy theo có kết quả giải hay chưa.
         for btn, hover_color, base_color in [
             (self.export_btn, "#2563EB", "#3B82F6"),
-            (self.html_btn,   "#0F766E", "#0D9488"),
-            (self.animate_btn, "#6D28D9", "#7C3AED"),
+            (self.html_btn,   "#5B21B6", "#6D28D9"),
+            (self.animate_btn, "#D97706", "#F59E0B"),
         ]:
             if btn is None:
                 continue
@@ -793,9 +793,9 @@ class SimplexApp(Viz3DMixin, tk.Tk):
     #   3 biến → nút tím indigo "Trực quan hóa (3D)"
     #   >3 biến→ nút xám bị vô hiệu hóa (không hỗ trợ)
     _VIZ_STYLES = {
-        2: dict(bg="#6EBF8B", hover="#4DAA72", icon="📊",
+        2: dict(bg="#0E7490", hover="#0891B2", icon="📊",
                 label="Trực quan hóa (2D)"),
-        3: dict(bg="#7C3AED", hover="#6D28D9", icon="🧊",
+        3: dict(bg="#1E3A5F", hover="#185FA5", icon="🧊",
                 label="Trực quan hóa (3D)"),
     }
     _VIZ_DISABLED = dict(bg="#CBD5E1", hover="#94A3B8",
@@ -2442,7 +2442,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             return True
         if snapshot is None:
             return False
-        # Kiểm tra split pairs: chỉ tính là vô số nghiệm nếu partner trong basis
+        # Kiểm tra split pairs: chỉ tính là vô số nghiệm nếu x_i thực sự thay đổi
         basis_set = set(snapshot.basis)
         art_set   = set(engine.artificial_vars)
         aux_idx   = getattr(engine, "phase1_aux_var_index", None)
@@ -2451,12 +2451,22 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             if len(mapping) != 2:
                 continue
             j_a, j_b = mapping[0][0], mapping[1][0]
-            for j, partner in ((j_a, j_b), (j_b, j_a)):
-                if (j not in basis_set and j not in art_set
-                        and j not in aux_set
-                        and snapshot.obj.get(j, Fraction(0)) == 0
-                        and partner in basis_set):
+            if j_a in art_set or j_b in art_set or j_a in aux_set or j_b in aux_set:
+                continue
+            j_a_free = (j_a not in basis_set and snapshot.obj.get(j_a, Fraction(0)) == 0)
+            j_b_free = (j_b not in basis_set and snapshot.obj.get(j_b, Fraction(0)) == 0)
+            if j_a_free and j_b in basis_set:
+                ri_b = snapshot.basis.index(j_b)
+                coef = snapshot.rows[ri_b].get(j_a, Fraction(0))
+                if Fraction(1) - coef != 0:
                     return True
+            elif j_b_free and j_a in basis_set:
+                ri_a = snapshot.basis.index(j_a)
+                coef = snapshot.rows[ri_a].get(j_b, Fraction(0))
+                if coef - Fraction(1) != 0:
+                    return True
+            elif j_a_free and j_b_free:
+                return True
         return False
 
     def _expand_free_vars_with_splits(self, engine, snapshot, base_free_vars):
