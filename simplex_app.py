@@ -1213,32 +1213,48 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 if cy > ymax and cy <= ymax + EXPAND_LIMIT*yr_cur:
                     ymax = cy + 0.04*yr_cur
         xr, yr = xmax-xmin, ymax-ymin
-        return xmin-0.28*xr, xmax+0.28*xr, ymin-0.28*yr, ymax+0.28*yr
-
-    def _create_meshgrid(self, xmin, xmax, ymin, ymax):
-        # Tạo lưới 220×220 điểm bao phủ khung nhìn để tô màu miền chấp nhận bằng contourf.
-        import numpy as np
-        x = np.linspace(xmin, xmax, 220)
-        y = np.linspace(ymin, ymax, 220)
-        X, Y = np.meshgrid(x, y)
-        return x, y, X, Y
-
-    def _compute_feasible_region(self, halfplanes, X, Y):
-        # Tính mảng boolean mask: True tại điểm (X[i,j], Y[i,j]) nếu thuộc miền khả thi.
-        import numpy as np
-        mask = np.ones_like(X, dtype=bool)
-        for a, b, c, sense, _ in halfplanes:
-            lhs = float(a)*X + float(b)*Y; cc = float(c)
-            if sense == "≤": mask &= lhs <= cc+1e-9
-            elif sense == "≥": mask &= lhs >= cc-1e-9
-            else: mask &= np.abs(lhs-cc) <= 1e-2
-        return mask
+        return xmin-0.10*xr, xmax+0.10*xr, ymin-0.10*yr, ymax+0.10*yr
 
     def _find_optimal_vertex(self, vertex_values, maximize):
         # Tìm đỉnh tối ưu trong danh sách (x, y, z): max z nếu maximize, min z nếu minimize.
         if not vertex_values: return None
         return max(vertex_values, key=lambda t: t[2]) if maximize \
                else min(vertex_values, key=lambda t: t[2])
+
+    def _is_region_bounded(self, halfplanes):
+        import math
+        directions = [
+            (1,0),(-1,0),(0,1),(0,-1),
+            (1,1),(-1,1),(1,-1),(-1,-1),
+        ]
+        for dx, dy in directions:
+            try:
+                from scipy.optimize import linprog
+                c_obj = [-dx, -dy]
+                A_ub, b_ub, A_eq, b_eq = [], [], [], []
+                for a, b, rhs, sense, _ in halfplanes:
+                    fa, fb, fc = float(a), float(b), float(rhs)
+                    if sense == "<=":
+                        A_ub.append([fa, fb]); b_ub.append(fc)
+                    elif sense == ">=":
+                        A_ub.append([-fa, -fb]); b_ub.append(-fc)
+                    else:
+                        A_eq.append([fa, fb]); b_eq.append(fc)
+                res = linprog(
+                    c_obj,
+                    A_ub=A_ub or None, b_ub=b_ub or None,
+                    A_eq=A_eq or None, b_eq=b_eq or None,
+                    bounds=[(None,None),(None,None)],
+                    method="highs",
+                )
+                if res.status == 3:
+                    return False
+            except Exception:
+                far = 1e6
+                px, py = dx*far, dy*far
+                if self._is_feasible_point(px, py, halfplanes, tol=1.0):
+                    return False
+        return True
 
     def _request_canvas_redraw(self, canvas, delay_ms=14):
         # Đặt lịch vẽ lại canvas sau delay_ms mili-giây bằng widget.after().
@@ -1252,8 +1268,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         widget._redraw_job = widget.after(delay_ms, _do)
 
     def _line_box_intersections(self, a, b, c, xmin, xmax, ymin, ymax):
-        # Tính giao điểm của đường thẳng a·x + b·y = c với các cạnh của hộp giới hạn [xmin, xmax] × [ymin, ymax]. Trả về danh sách điểm nằm trong hộp.
-        # Dùng để xác định đoạn thẳng cần vẽ cho từng ràng buộc / đường đồng mức.
         eps = 1e-12; pts = []
         def add(pt):
             x, y = pt
@@ -1300,7 +1314,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         engine = report.engine if report else None
         status = report.status if report else ("infeasible" if not vertices else "optimal")
 
-        # Xác định điểm tối ưu từ engine (chính xác hơn dò đỉnh hình học)
+        # Xác định điểm tối ưu từ engine
         if report and engine and report.solution_orig and status not in ("infeasible", "unbounded"):
             so = report.solution_orig
             ox = float(so.get(0, Fraction(0)))
@@ -1310,11 +1324,12 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         else:
             optimal_point = self._find_optimal_vertex(vertex_values, maximize)
 
-        # Vô số nghiệm: tìm đoạn tối ưu với dung sai tương đối
+        # Vô số nghiệm:
         multi_opt: List[Tuple[float, float]] = []
-        if report and report.multiple_optimal and optimal_point:
+        _snap_check = self._get_final_snapshot(report)
+        _is_multi = report and self._has_multiple_optimal(engine, _snap_check, report) and optimal_point
+        if _is_multi:
             opt_z = optimal_point[2]
-            # Dung sai tương đối: lấy max(1e-6, 1e-4 * |opt_z|) để tránh bỏ sót
             tol = max(1e-6, 1e-4 * abs(opt_z)) if abs(opt_z) > 1e-10 else 1e-6
             multi_opt = [(x, y) for x, y, z in vertex_values if abs(z - opt_z) < tol]
 
@@ -1357,9 +1372,26 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 xmax = max(xmax, tip_x + extra)
                 ymin = min(ymin, tip_y - extra)
                 ymax = max(ymax, tip_y + extra)
-
-        _, _, X, Y = self._create_meshgrid(xmin, xmax, ymin, ymax)
-        feasible_mask = self._compute_feasible_region(halfplanes, X, Y)
+              
+        if _is_multi and len(multi_opt) < 2 and abs(c1) + abs(c2) > 1e-12:
+            opt_z  = optimal_point[2]
+            tol    = max(1e-6, 1e-4 * abs(opt_z)) if abs(opt_z) > 1e-10 else 1e-6
+            poly   = [(xmin, ymin), (xmax, ymin), (xmax, ymax), (xmin, ymax)]
+            for a, b, c, sense, _ in halfplanes:
+                poly = self._clip_polygon_by_halfplane(poly, a, b, c, sense)
+                if not poly:
+                    break
+            if poly:
+                poly_plus  = self._clip_polygon_by_halfplane(poly, c1, c2, opt_z, "≤")
+                poly_minus = self._clip_polygon_by_halfplane(poly, c1, c2, opt_z, "≥")
+                seg_pts: List[Tuple[float, float]] = []
+                for px, py in (poly_plus or []) + (poly_minus or []):
+                    if abs(c1*px + c2*py - opt_z) < tol * max(1, abs(opt_z)):
+                        if not any(abs(px-qx) < 1e-7 and abs(py-qy) < 1e-7
+                                   for qx, qy in seg_pts):
+                            seg_pts.append((px, py))
+                if len(seg_pts) >= 2:
+                    multi_opt = seg_pts
 
         # ── Dựng cửa sổ ──────────────────────────────────────────────────
         win = self._create_visualization_window()
@@ -1373,21 +1405,26 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         canvas_host.rowconfigure(0, weight=1)
         canvas_host.columnconfigure(0, weight=1)
 
+        region_bounded = status == "infeasible" or self._is_region_bounded(halfplanes)
+
         fig, ax = self._create_figure()
-        self._plot_feasible_region(ax, X, Y, feasible_mask)
         self._plot_constraints(ax, halfplanes, xmin, xmax, ymin, ymax)
         self._plot_objective_contours(ax, c1, c2, vertex_values,
                                       xmin, xmax, ymin, ymax, maximize)
-        self._plot_vertices(ax, vertex_values, maximize)
+        if region_bounded:
+            self._plot_vertices(ax, vertex_values, maximize)
+        else:
+            self._plot_unbounded_region(ax, halfplanes, xmin, xmax, ymin, ymax)
 
         # Vẽ đặc trưng theo trạng thái
         if status == "unbounded":
             self._plot_unbounded_arrow_2d(ax, _unb_sx, _unb_sy,
                                           _unb_dx, _unb_dy)
-        elif multi_opt and len(multi_opt) >= 2:
-            self._plot_optimal_edge_2d(ax, multi_opt, vertex_values)
-        elif status != "infeasible":
-            self._plot_optimal_point(ax, optimal_point, maximize)
+        if status != "infeasible" and status != "unbounded":
+            if multi_opt and len(multi_opt) >= 2:
+                self._plot_optimal_edge_2d(ax, multi_opt, vertex_values)
+            elif optimal_point:
+                self._plot_optimal_point(ax, optimal_point, maximize)
 
         if status == "infeasible":
             self._plot_infeasible_notice_2d(ax, xmin, xmax, ymin, ymax)
@@ -1415,6 +1452,54 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         win.focus_force()
 
     # ── Vẽ mũi tên không giới nội 2D ────────────────────────────────────
+    def _clip_polygon_by_halfplane(self, poly, a, b, c, sense):
+        if not poly:
+            return []
+        fa, fb, fc = float(a), float(b), float(c)
+        def inside(p):
+            v = fa*p[0] + fb*p[1]
+            if sense == "≤": return v <= fc + 1e-9
+            if sense == "≥": return v >= fc - 1e-9
+            return abs(v - fc) <= 1e-7
+        def intersect(p1, p2):
+            dx, dy = p2[0]-p1[0], p2[1]-p1[1]
+            denom = fa*dx + fb*dy
+            if abs(denom) < 1e-12:
+                return p1
+            t = (fc - fa*p1[0] - fb*p1[1]) / denom
+            return (p1[0] + t*dx, p1[1] + t*dy)
+        result = []
+        n = len(poly)
+        for i in range(n):
+            cur, nxt = poly[i], poly[(i+1) % n]
+            ic, inxt = inside(cur), inside(nxt)
+            if ic:
+                result.append(cur)
+            if ic != inxt:
+                result.append(intersect(cur, nxt))
+        return result
+
+    def _plot_unbounded_region(self, ax, halfplanes, xmin, xmax, ymin, ymax):
+        poly = [
+            (xmin, ymin), (xmax, ymin),
+            (xmax, ymax), (xmin, ymax),
+        ]
+        for a, b, c, sense, _ in halfplanes:
+            poly = self._clip_polygon_by_halfplane(poly, a, b, c, sense)
+            if not poly:
+                break
+        if len(poly) < 3:
+            return
+        from matplotlib.patches import Polygon as MplPolygon
+        import numpy as np
+        patch = MplPolygon(
+            np.array(poly), closed=True,
+            facecolor="#BBDEFB", alpha=0.42,
+            edgecolor="#1565C0", linewidth=1.6,
+            linestyle="-", zorder=1
+        )
+        ax.add_patch(patch)
+
     def _plot_unbounded_arrow_2d(self, ax, sx, sy, dx, dy):
         """Vẽ mũi tên chỉ hướng tối ưu hóa tiến tới vô cùng.
         sx,sy: gốc mũi tên.  dx,dy: vector hướng (đã tính sẵn, khớp với bounds).
@@ -1553,7 +1638,9 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             "unbounded": "Bài toán KHÔNG GIỚI NỘI",
             "cycle": "Dantzig xoay vòng → dùng Bland",
         }
-        if report and report.multiple_optimal and status == "optimal":
+        _eng2d   = getattr(report, "engine", None)
+        _snap2d  = self._get_final_snapshot(report)
+        if report and status == "optimal" and self._has_multiple_optimal(_eng2d, _snap2d, report):
             txt = "VÔ SỐ NGHIỆM TỐI ƯU"
             color = "#1565C0"
         else:
@@ -1708,17 +1795,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         ax.tick_params(colors="#37474F", labelsize=9)
         return fig, ax
 
-    def _plot_feasible_region(self, ax, X, Y, mask):
-        # Tô vùng chấp nhận được với lớp màu dịu trên nền sáng.
-        z = mask.astype(float)
-        ax.contourf(
-            X, Y, z,
-            levels=[0.5, 1.5],
-            colors=["#90CAF9"],
-            alpha=0.22,
-            zorder=0,
-        )
-
     def _plot_constraints(self, ax, halfplanes, xmin, xmax, ymin, ymax):
         # Vẽ từng đường biên ràng buộc — màu xoay vòng Set3-inspired, đủ 12 màu phân biệt.
         # Không vẽ nhãn inline; nhãn hiển thị qua legend.
@@ -1765,22 +1841,100 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                         bbox=dict(boxstyle="round,pad=0.25",
                                   fc="#E3F2FD", ec="#1565C0", alpha=0.95), zorder=4)
 
+    def _convex_hull_order(self, coords_2d):
+
+        import numpy as np
+        n = len(coords_2d)
+        if n < 2:
+            return list(range(n))
+        if n == 2:
+            return [0, 1]
+
+        # --- Thử scipy trước (nhanh, chính xác) ---
+        try:
+            from scipy.spatial import ConvexHull
+            hull = ConvexHull(coords_2d, qhull_options="QJ")
+            # hull.vertices là CCW; đảm bảo thứ tự bằng cách lấy theo simplices
+            return list(hull.vertices)
+        except Exception:
+            pass
+
+        # --- Fallback: Graham scan thuần Python ---
+        pts = [(coords_2d[i][0], coords_2d[i][1], i) for i in range(n)]
+        # Điểm khởi đầu: y nhỏ nhất, rồi x nhỏ nhất
+        pivot = min(pts, key=lambda p: (p[1], p[0]))
+        px, py = pivot[0], pivot[1]
+
+        def cross(o, a, b):
+            return (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0])
+
+        rest = [p for p in pts if not (abs(p[0]-px)<1e-12 and abs(p[1]-py)<1e-12)]
+        rest.sort(key=lambda p: (
+            math.atan2(p[1]-py, p[0]-px),
+            (p[0]-px)**2 + (p[1]-py)**2
+        ))
+
+        stack = [pivot, rest[0]] if rest else [pivot]
+        for p in rest[1:]:
+            while len(stack) >= 2 and cross(stack[-2], stack[-1], p) <= 0:
+                stack.pop()
+            stack.append(p)
+
+        return [p[2] for p in stack]
+
     def _plot_vertices(self, ax, vv, maximize):
-        # Vẽ đa giác đỉnh khả thi và đánh số từng đỉnh — light theme.
         if not vv: return
-        pts = list(vv)
-        cx = sum(p[0] for p in pts)/len(pts)
-        cy = sum(p[1] for p in pts)/len(pts)
-        pts.sort(key=lambda t: math.atan2(t[1]-cy, t[0]-cx))
-        ax.fill([p[0] for p in pts],[p[1] for p in pts],
-                color="#BBDEFB", alpha=0.30, zorder=1)
-        ax.plot([p[0] for p in pts]+[pts[0][0]],
-                [p[1] for p in pts]+[pts[0][1]],
-                color="#1565C0", linewidth=1.1, linestyle=":", alpha=0.50, zorder=2.5)
-        for idx,(vx,vy,val) in enumerate(pts,start=1):
-            ax.scatter([vx],[vy], s=42, color="#1976D2",
+        import numpy as np
+        from matplotlib.patches import Polygon as MplPolygon
+
+        pts = list(vv)  # mỗi phần tử: (x, y, z)
+        coords = np.array([(p[0], p[1]) for p in pts], dtype=float)
+
+        # ── Trường hợp 1 đỉnh: chấm ──────────────────────────────────────
+        if len(pts) == 1:
+            ax.scatter([pts[0][0]], [pts[0][1]], s=42, color="#1976D2",
                        edgecolors="#FFFFFF", linewidths=1.2, zorder=5)
-            ax.annotate(f"{idx}", xy=(vx,vy), xytext=(6,6),
+            ax.annotate("1", xy=(pts[0][0], pts[0][1]), xytext=(6,6),
+                        textcoords="offset points", fontsize=9, color="#0D47A1",
+                        bbox=dict(boxstyle="circle,pad=0.20",
+                                  fc="#E3F2FD", ec="#1565C0", alpha=0.96), zorder=6)
+            return
+
+        # ── Trường hợp 2 đỉnh: đoạn thẳng ───────────────────────────────
+        if len(pts) == 2:
+            ax.plot([pts[0][0], pts[1][0]], [pts[0][1], pts[1][1]],
+                    color="#1565C0", linewidth=2.2, alpha=0.75, zorder=2.5)
+            for idx, (vx, vy, _) in enumerate(pts, start=1):
+                ax.scatter([vx], [vy], s=42, color="#1976D2",
+                           edgecolors="#FFFFFF", linewidths=1.2, zorder=5)
+                ax.annotate(f"{idx}", xy=(vx, vy), xytext=(6,6),
+                            textcoords="offset points", fontsize=9, color="#0D47A1",
+                            bbox=dict(boxstyle="circle,pad=0.20",
+                                      fc="#E3F2FD", ec="#1565C0", alpha=0.96), zorder=6)
+            return
+
+        # ── Trường hợp ≥3 đỉnh: vẽ polygon convex hull ───────────────────
+        hull_idx = self._convex_hull_order(coords)
+        hull_pts = [pts[i] for i in hull_idx]   # (x, y, z) theo CCW
+        hull_xy  = np.array([(p[0], p[1]) for p in hull_pts])
+
+        poly_patch = MplPolygon(
+            hull_xy, closed=True,
+            facecolor="#BBDEFB", alpha=0.42,
+            edgecolor="#1565C0", linewidth=1.6,
+            linestyle="-", zorder=1
+        )
+        ax.add_patch(poly_patch)
+
+        hull_set = set(hull_idx)
+        non_hull = [i for i in range(len(pts)) if i not in hull_set]
+        ordered_for_label = list(hull_idx) + non_hull
+
+        for label_num, orig_idx in enumerate(ordered_for_label, start=1):
+            vx, vy, _ = pts[orig_idx]
+            ax.scatter([vx], [vy], s=42, color="#1976D2",
+                       edgecolors="#FFFFFF", linewidths=1.2, zorder=5)
+            ax.annotate(f"{label_num}", xy=(vx, vy), xytext=(6, 6),
                         textcoords="offset points", fontsize=9, color="#0D47A1",
                         bbox=dict(boxstyle="circle,pad=0.20",
                                   fc="#E3F2FD", ec="#1565C0", alpha=0.96), zorder=6)
@@ -1919,11 +2073,9 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         var_names = [f"x{i+1}" for i in range(n)]
 
         def fmt_coeff(c):
-            """Định dạng hệ số tuyệt đối (không có dấu)."""
             return fmt_num(abs(c), mode)
 
         def build_terms(coeffs):
-            """Trả về list (sign_str, body_str) cho từng hạng tử khác 0."""
             terms = []
             for c, nm in zip(coeffs, var_names):
                 if c == 0:
@@ -1939,7 +2091,6 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         # ── Thu thập tất cả hàng để tính độ rộng cột ────────────────────
         # Mỗi hàng là list các (sign, body) theo thứ tự biến
         def row_cells(coeffs):
-            """Với mỗi biến xj, trả về chuỗi hiển thị cho ô đó (có thể rỗng)."""
             cells = []
             for c, nm in zip(coeffs, var_names):
                 if c == 0:
@@ -2238,34 +2389,110 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             else: parts.append(body if coef>0 else f"- {body}")
         return " ".join(parts).strip() if parts else "0"
 
+    def _get_final_snapshot(self, report):
+        if report is None:
+            return None
+        if report.phase2_trace and report.phase2_trace.final_snapshot:
+            return report.phase2_trace.final_snapshot
+        if report.bland is not None and report.bland.final_snapshot:
+            return report.bland.final_snapshot
+        return report.dantzig.final_snapshot
+
+    def _has_multiple_optimal(self, engine, snapshot, report):
+        if report.multiple_optimal_vars:
+            return True
+        if snapshot is None:
+            return False
+        # Kiểm tra split pairs
+        basis_set = set(snapshot.basis)
+        art_set   = set(engine.artificial_vars)
+        aux_idx   = getattr(engine, "phase1_aux_var_index", None)
+        aux_set   = {aux_idx} if aux_idx is not None else set()
+        for mapping in engine.variable_mapping:
+            if len(mapping) != 2:
+                continue
+            j_a, j_b = mapping[0][0], mapping[1][0]
+            for j in (j_a, j_b):
+                if (j not in basis_set and j not in art_set
+                        and j not in aux_set
+                        and snapshot.obj.get(j, Fraction(0)) == 0):
+                    return True
+        return False
+
+    def _expand_free_vars_with_splits(self, engine, snapshot, base_free_vars):
+        basis_set = set(snapshot.basis)
+        art_set   = set(engine.artificial_vars)
+        aux_idx   = getattr(engine, "phase1_aux_var_index", None)
+        aux_set   = {aux_idx} if aux_idx is not None else set()
+        base_set  = set(base_free_vars)
+
+        # Quét thêm a_i/b_i phi cơ sở obj=0 chưa có trong base_free_vars
+        extra: list[int] = []
+        split_free_pairs = []
+        for orig_idx, mapping in enumerate(engine.variable_mapping):
+            if len(mapping) != 2:
+                continue
+            j_a, j_b = mapping[0][0], mapping[1][0]
+            a_free = (j_a not in basis_set and j_a not in art_set
+                      and j_a not in aux_set
+                      and snapshot.obj.get(j_a, Fraction(0)) == 0)
+            b_free = (j_b not in basis_set and j_b not in art_set
+                      and j_b not in aux_set
+                      and snapshot.obj.get(j_b, Fraction(0)) == 0)
+            if not a_free and not b_free:
+                continue
+            # Đã có trong base rồi thì không thêm nữa
+            which = ""
+            if a_free and j_a not in base_set:
+                extra.append(j_a); which += "a"
+            if b_free and j_b not in base_set:
+                extra.append(j_b); which += "b"
+            if a_free and j_a in base_set:
+                which += "a"
+            if b_free and j_b in base_set:
+                which += "b"
+            if which:
+                split_free_pairs.append((orig_idx, j_a, j_b, which))
+
+        all_free_vars = list(base_free_vars) + extra
+        return all_free_vars, split_free_pairs
+
     def _format_multiple_optimal_family(self, engine, snapshot, report):
         mode = self.data_mode
-        free_vars = report.multiple_optimal_vars or []
-        if not free_vars:
+        base_free_vars = report.multiple_optimal_vars or []
+        if not base_free_vars:
             return []
 
-        aux_idx = getattr(engine, "phase1_aux_var_index", None)
-        art_set = set(engine.artificial_vars)
-        free_names = [snapshot.all_names[j] for j in free_vars]
+        all_free_vars, split_free_pairs = self._expand_free_vars_with_splits(
+            engine, snapshot, base_free_vars)
+        free_vars     = all_free_vars
+        free_set_vars = set(free_vars)
 
-        # ── Map: std_var_index → tên hiển thị ưu tiên x_i ──────────────────
-        # Với biến ≥0/≤0 (mapping 1 phần tử): std j → "x{i+1}"
-        # Với biến tự do gốc (mapping 2 phần tử: a_i - b_i):
-        #   cả a_i lẫn b_i đều map về "x{i+1}" để hiển thị gộp
+        aux_idx   = getattr(engine, "phase1_aux_var_index", None)
+        art_set   = set(engine.artificial_vars)
+        basis_set = set(snapshot.basis)
+        basis_list = list(snapshot.basis)
+
+        # Map j → tên gốc xi (dùng để gộp a_i/b_i)
         std_to_xname: Dict[int, str] = {}
         for orig_idx, mapping in enumerate(engine.variable_mapping):
             xn = f"x{orig_idx+1}"
-            if len(mapping) == 1:
-                std_to_xname[mapping[0][0]] = xn
-            elif len(mapping) == 2:
-                std_to_xname[mapping[0][0]] = xn   # a_i → x_i
-                std_to_xname[mapping[1][0]] = xn   # b_i → x_i
+            for j, _ in mapping:
+                std_to_xname[j] = xn
 
-        # ── Phân loại biến phi cơ sở ────────────────────────────────────────
-        basis_set = set(snapshot.basis)
-        free_set_vars = set(free_vars)
+        # Map orig_idx → (j_a, j_b) cho biến tự do gốc
+        split_map: Dict[int, tuple] = {}
+        for oi, ja, jb, _ in split_free_pairs:
+            split_map[oi] = (ja, jb)
 
-        # Biến phi cơ sở bị gán = 0 (không phải tham số tự do, không phải aux/art)
+        # Biến xi được tham số hóa bởi x_i = a_i - b_i
+        # (orig_idx → set of xi names đã được "split")
+        split_orig_idxs = {oi for oi, *_ in split_free_pairs}
+
+        # Tên tham số tự do để in
+        free_names = [snapshot.all_names[j] for j in free_vars]
+
+        # Biến phi cơ sở bị gán 0
         fixed_zero_names = [
             snapshot.all_names[j]
             for j in range(len(snapshot.all_names))
@@ -2275,254 +2502,285 @@ class SimplexApp(Viz3DMixin, tk.Tk):
             and j not in art_set
         ]
 
-        # Kiểm tra có biến tự do gốc (a_i/b_i) nào trong free_vars không
-        # để thêm dòng "Mà ta lại có: a_i - b_i = x_i"
-        has_split_var = any(
-            len(engine.variable_mapping[orig_idx]) == 2
-            for orig_idx in range(len(engine.variable_mapping))
-            for j, _ in engine.variable_mapping[orig_idx]
-            if j in free_set_vars
-        )
-
         # ── Dòng mở đầu ─────────────────────────────────────────────────────
-        # "trừ X" = các tham số tự do giữ lại (free_names)
-        # "Y = 0" = các biến phi cơ sở còn lại bị gán 0
+        names_str = ", ".join(free_names)
+        fixed_str = (", ".join(fixed_zero_names) + " = 0") if fixed_zero_names else "(không có)"
         if len(free_vars) == 1:
-            fixed_str = ", ".join(fixed_zero_names) + " = 0" if fixed_zero_names else ""
             lines = [
                 f"  Do hệ số trước {free_names[0]} bằng 0. Bài toán có vô số nghiệm.",
                 f"  Cho các biến không cơ sở (trừ {free_names[0]}) bằng 0: {fixed_str}",
-                f"  Khi đó:",
             ]
         else:
-            names_str = ", ".join(free_names)
-            fixed_str = ", ".join(fixed_zero_names) + " = 0" if fixed_zero_names else ""
             lines = [
                 f"  Do hệ số trước {names_str} đều bằng 0. Bài toán có vô số nghiệm.",
                 f"  Cho các biến không cơ sở (trừ {names_str}) bằng 0: {fixed_str}",
-                f"  Khi đó:",
             ]
-        if has_split_var:
-            # Liệt kê các cặp a_i - b_i = x_i liên quan
-            split_pairs = []
-            for orig_idx, mapping in enumerate(engine.variable_mapping):
-                if len(mapping) == 2:
-                    j1, j2 = mapping[0][0], mapping[1][0]
-                    if j1 in free_set_vars or j2 in free_set_vars:
-                        a_nm = snapshot.all_names[j1]
-                        b_nm = snapshot.all_names[j2]
-                        split_pairs.append(f"{a_nm} - {b_nm} = x{orig_idx+1}")
-            if split_pairs:
-                lines.append(f"  Mà ta lại có: {'; '.join(split_pairs)}.")
 
-        # ── Giá trị mục tiêu ─────────────────────────────────────────────────
-        lines.append(f"    z = {fmt_num(snapshot.obj_const, mode)}")
+        # ── Helper: biểu diễn một biến std theo tham số tự do ───────────────
+        def std_expr(jj, use_xi=True):
+            if jj in basis_set:
+                ri2 = basis_list.index(jj)
+                c = snapshot.rhs[ri2]
+                t = {fv: snapshot.rows[ri2].get(fv, Fraction(0)) for fv in free_vars}
+            elif jj in free_set_vars:
+                c = Fraction(0)
+                t = {fv: (Fraction(1) if fv == jj else Fraction(0)) for fv in free_vars}
+            else:
+                c = Fraction(0)
+                t = {fv: Fraction(0) for fv in free_vars}
+            return c, t
 
-        # ── Biến cơ sở biểu diễn theo các biến tự do ────────────────────────
-        # Với biến tự do gốc (a_i, b_i): gộp cả hai hàng thành x_i = a_i - b_i
-        def row_expr_multi(ri):
-            terms = []
-            for fv in free_vars:
-                coef = snapshot.rows[ri].get(fv, Fraction(0))
+        # ── Tính biểu thức mỗi hàng basis theo tham số ──────────────────────
+        # Với biến cơ sở là a_i: gộp với b_i (nếu b_i cơ sở) → x_i
+        # Kết quả: xname → (const, {fv: coef})
+        xname_expr: Dict[str, tuple] = {}
+        printed_basis: set = set()
+        for ri, b in enumerate(basis_list):
+            if b in art_set or (aux_idx is not None and b == aux_idx):
+                continue
+            xn = std_to_xname.get(b, snapshot.all_names[b])
+            if xn in printed_basis:
+                continue
+            printed_basis.add(xn)
+
+            # Dấu: +1 cho a_i hoặc biến thường, -1 cho b_i
+            sign = Fraction(1)
+            for mapping in engine.variable_mapping:
+                if len(mapping) == 2 and mapping[1][0] == b:
+                    sign = Fraction(-1); break
+
+            c0 = sign * snapshot.rhs[ri]
+            t0 = {fv: sign * snapshot.rows[ri].get(fv, Fraction(0)) for fv in free_vars}
+
+            # Nếu đây là a_i và b_i cũng trong basis → gộp
+            for oi, (ja, jb) in split_map.items():
+                if b == ja and jb in basis_set:
+                    ri_b = basis_list.index(jb)
+                    c0 += Fraction(-1) * snapshot.rhs[ri_b]
+                    for fv in free_vars:
+                        t0[fv] = t0.get(fv, Fraction(0)) + Fraction(-1) * snapshot.rows[ri_b].get(fv, Fraction(0))
+                    break
+
+            xname_expr[xn] = (c0, t0)
+
+        # ── Gộp {fv:coef} → terms hiển thị, thay a_i/b_i bằng x_i khi có thể ──
+        def to_xi_terms(t):
+            """Với cặp (ja, jb): nếu t[jb] == -t[ja] thì gộp thành x_i với coef=t[ja].
+            Nếu không gộp được thì giữ tên a_i, b_i riêng."""
+            remaining: Dict[int, Fraction] = {fv: v for fv, v in t.items() if v != 0}
+            result_terms: list = []
+            for oi2, ja2, jb2, _ in split_free_pairs:
+                ca = remaining.get(ja2, Fraction(0))
+                cb = remaining.get(jb2, Fraction(0))
+                if ca == 0 and cb == 0:
+                    continue
+                if cb == -ca:
+                    # ca*a_i + (-ca)*b_i = ca*(a_i-b_i) = ca*x_i
+                    if ca != 0:
+                        result_terms.append((ca, f"x{oi2+1}"))
+                    remaining.pop(ja2, None)
+                    remaining.pop(jb2, None)
+                else:
+                    if ca != 0:
+                        result_terms.append((ca, snapshot.all_names[ja2]))
+                        remaining.pop(ja2, None)
+                    if cb != 0:
+                        result_terms.append((cb, snapshot.all_names[jb2]))
+                        remaining.pop(jb2, None)
+            for fv, coef in remaining.items():
                 if coef != 0:
-                    terms.append((coef, snapshot.all_names[fv]))
-            return self._linear_text(snapshot.rhs[ri], terms, mode)
+                    result_terms.append((coef, snapshot.all_names[fv]))
+            return result_terms
 
-        # Gộp các hàng cùng map về một x_i (trường hợp a_i - b_i)
-        # Key: xname → (const, {fv: coef})
-        xname_rows: Dict[str, tuple] = {}
-        for ri, b in enumerate(snapshot.basis):
-            if b in art_set:
-                continue
-            if aux_idx is not None and b == aux_idx:
-                continue
-            xn = std_to_xname.get(b, snapshot.all_names[b])
-            if xn not in xname_rows:
-                # Tìm coef của std b trong mapping để biết dấu (+1 cho a_i, -1 cho b_i)
-                sign = Fraction(1)
-                for orig_idx, mapping in enumerate(engine.variable_mapping):
-                    if len(mapping) == 2:
-                        if mapping[0][0] == b:
-                            sign = Fraction(1)   # a_i
-                            break
-                        if mapping[1][0] == b:
-                            sign = Fraction(-1)  # b_i
-                            break
-                xname_rows[xn] = (sign * snapshot.rhs[ri],
-                                  {fv: sign * snapshot.rows[ri].get(fv, Fraction(0))
-                                   for fv in free_vars})
-            else:
-                # Cộng thêm hàng thứ hai (b_i, sign = -1)
-                sign = Fraction(-1)
-                existing_const, existing_fv = xname_rows[xn]
-                new_const = existing_const + sign * snapshot.rhs[ri]
-                new_fv = dict(existing_fv)
-                for fv in free_vars:
-                    new_fv[fv] = new_fv.get(fv, Fraction(0)) + sign * snapshot.rows[ri].get(fv, Fraction(0))
-                xname_rows[xn] = (new_const, new_fv)
-
-        # In theo thứ tự xuất hiện trong basis (dùng xname đã gộp, tránh in trùng)
-        printed_xnames = set()
-        for ri, b in enumerate(snapshot.basis):
-            if b in art_set:
-                continue
-            if aux_idx is not None and b == aux_idx:
-                continue
-            xn = std_to_xname.get(b, snapshot.all_names[b])
-            if xn in printed_xnames:
-                continue
-            printed_xnames.add(xn)
-            if xn in xname_rows:
-                const_v, fv_coefs = xname_rows[xn]
-                terms = [(fv_coefs[fv], snapshot.all_names[fv])
-                         for fv in free_vars if fv_coefs.get(fv, Fraction(0)) != 0]
-                lines.append(f"    {xn} = {self._linear_text(const_v, terms, mode)}")
-            else:
-                lines.append(f"    {xn} = {row_expr_multi(ri)}")
+        def linear_xi(c, t):
+            return self._linear_text(c, to_xi_terms(t), mode)
 
         # ── Điều kiện khả thi ────────────────────────────────────────────────
-        lines.append("")
         lines.append("  Để nghiệm khả thi (các biến cơ sở ≥ 0), cần:")
-        printed_cond = set()
-        for ri, b in enumerate(snapshot.basis):
-            if b in art_set:
-                continue
-            if aux_idx is not None and b == aux_idx:
+
+        # Mối hàng basis: in điều kiện, thay a_i/b_i bằng x_i nếu chúng gộp được
+        seen_cond: set = set()
+        for ri, b in enumerate(basis_list):
+            if b in art_set or (aux_idx is not None and b == aux_idx):
                 continue
             xn = std_to_xname.get(b, snapshot.all_names[b])
-            if xn in printed_cond:
+            if xn in seen_cond:
                 continue
-            printed_cond.add(xn)
-            has_free = any(snapshot.rows[ri].get(fv, Fraction(0)) != 0 for fv in free_vars)
-            if not has_free:
+            seen_cond.add(xn)
+            if xn not in xname_expr:
                 continue
-            if xn in xname_rows:
-                const_v, fv_coefs = xname_rows[xn]
-                terms = [(fv_coefs[fv], snapshot.all_names[fv])
-                         for fv in free_vars if fv_coefs.get(fv, Fraction(0)) != 0]
-                expr = self._linear_text(const_v, terms, mode)
-            else:
-                expr = row_expr_multi(ri)
-            lines.append(f"    {xn} = {expr} ≥ 0")
+            c0, t0 = xname_expr[xn]
+            has_dep = any(v != 0 for v in t0.values())
 
-        # ── 1 biến tự do: rút gọn khoảng ────────────────────────────────────
-        if len(free_vars) == 1:
-            param_idx = free_vars[0]
-            param_name = free_names[0]
-            param_conditions = []
-            seen_src = set()
-            for ri, b in enumerate(snapshot.basis):
-                if aux_idx is not None and b == aux_idx:
-                    continue
-                xn = std_to_xname.get(b, snapshot.all_names[b])
-                if xn in seen_src:
-                    continue
-                if xn in xname_rows:
-                    _, fv_coefs = xname_rows[xn]
-                    coef = fv_coefs.get(param_idx, Fraction(0))
-                    const_v = xname_rows[xn][0]
+            # Nếu là a_i với split: thay bằng x_i trong điều kiện
+            is_ai_row = any(b == ja for _, ja, jb, _ in split_free_pairs)
+            if is_ai_row:
+                # x_i = a_i - b_i → điều kiện x_i = expr theo xi biến
+                expr_str = linear_xi(c0, t0)
+                # Nếu không có tham số → hằng số, không cần in
+                if not has_dep and c0 >= 0:
+                    lines.append(f"    {xn} = {fmt_num(c0, mode)} ≥ 0  ✓")
                 else:
-                    coef = snapshot.rows[ri].get(param_idx, Fraction(0))
-                    const_v = snapshot.rhs[ri]
-                if coef == 0:
-                    continue
-                seen_src.add(xn)
-                bound = -const_v / coef
-                if coef > 0:
-                    param_conditions.append(("≥", bound, xn))
-                else:
-                    param_conditions.append(("≤", bound, xn))
-            
-            for cond_type, bound_val, src_name in param_conditions:
-                lines.append(f"    {param_name} {cond_type} {fmt_num(bound_val, mode)}  "
-                            f"(từ {src_name} ≥ 0)")
-            lines.append("  Thêm điều kiện của các biến không cơ sở:")
-            lines.append(f"    {param_name} ≥ 0")
-            
-            lowers = [bv for (t, bv, *_) in param_conditions if t == "≥"]
-            uppers = [bv for (t, bv, *_) in param_conditions if t == "≤"]
-            lower = max(lowers + [Fraction(0)]) if lowers else Fraction(0)
-            if uppers:
-                upper = min(uppers)
-                lines.append(f"  → Điều kiện tham số rút gọn: "
-                            f"{fmt_num(lower, mode)} ≤ {param_name} ≤ {fmt_num(upper, mode)}")
+                    lines.append(f"    {xn} = {expr_str} ≥ 0")
             else:
-                lines.append(f"  → Điều kiện tham số rút gọn: {param_name} ≥ {fmt_num(lower, mode)}")
+                if not has_dep:
+                    if c0 >= 0:
+                        lines.append(f"    {xn} = {fmt_num(c0, mode)} ≥ 0  ✓")
+                else:
+                    expr_str = linear_xi(c0, t0)
+                    lines.append(f"    {xn} = {expr_str} ≥ 0")
 
-        # ── Nhiều biến tự do: điều kiện bản thân ────────────────────────────
-        else:
-            lines.append("")
-            lines.append("  Thêm điều kiện của các biến không cơ sở:")
-            for fn in free_names:
-                lines.append(f"    {fn} ≥ 0")
+        # Điều kiện các tham số phi cơ sở (không phải a_i/b_i)
+        non_split_free = [fv for fv in free_vars
+                          if not any(ja == fv or jb == fv
+                                     for _, ja, jb, _ in split_free_pairs)]
+        if non_split_free:
+            for fv in non_split_free:
+                lines.append(f"    {snapshot.all_names[fv]} ≥ 0")
+
+        # Điều kiện a_i/b_i ≥ 0 — chỉ ghi chú nếu chưa gộp thành x_i
+        if split_free_pairs:
+            xi_parts = ", ".join(f"x{oi+1} = a{oi+1} - b{oi+1}" for oi, *_ in split_free_pairs)
+            lines.append(f"  Kết hợp với ràng buộc dấu: {xi_parts}, a_i, b_i ≥ 0")
 
         return lines
 
     def _format_multiple_optimal_conclusion(self, engine, snapshot, report):
-        """Trả về các dòng 'Nghiệm tối ưu là:' + điều kiện, dùng trong KẾT LUẬN."""
+        """Nghiệm tối ưu biểu diễn theo biến gốc x_i, với điều kiện theo x_i."""
         mode = self.data_mode
-        free_vars = report.multiple_optimal_vars or []
-        if not free_vars:
+        base_free_vars = report.multiple_optimal_vars or []
+        if not base_free_vars:
             return []
 
-        aux_idx = getattr(engine, "phase1_aux_var_index", None)
-        art_set  = set(engine.artificial_vars)
-        free_set = set(free_vars)
-        free_names = [snapshot.all_names[j] for j in free_vars]
+        all_free_vars, split_free_pairs = self._expand_free_vars_with_splits(
+            engine, snapshot, base_free_vars)
+        free_vars  = all_free_vars
+        free_set   = set(free_vars)
+
+        aux_idx    = getattr(engine, "phase1_aux_var_index", None)
+        art_set    = set(engine.artificial_vars)
         basis_list = list(snapshot.basis)
+        basis_set  = set(basis_list)
+        n_orig     = len(engine.problem.var_signs)
 
-        # ── Map std_var_index → (orig_idx, role) để tính x_i = a_i - b_i ──
-        # role: +1 = a_i (hoặc biến ≥0/≤0 duy nhất), -1 = b_i
-        std_role: Dict[int, tuple] = {}   # j → (orig_idx, sign)
+        # Map orig_idx → (ja, jb) cho split
+        split_map: Dict[int, tuple] = {oi: (ja, jb) for oi, ja, jb, _ in split_free_pairs}
+        split_orig = set(split_map.keys())
+
+        # ── Tính x_i theo tham số tự do (biểu diễn dạng xi) ─────────────────
+        # Tham số tự do hiển thị: a_i/b_i → x_i, còn lại giữ tên gốc
+        def param_display(fv):
+            for oi2, ja2, jb2, _ in split_free_pairs:
+                if fv == ja2 or fv == jb2:
+                    return f"x{oi2+1}"
+            return snapshot.all_names[fv]
+
+        # xi_expr[orig_idx] = (const, {fv: coef}) theo free_vars
+        xi_expr: Dict[int, tuple] = {}
         for orig_idx, mapping in enumerate(engine.variable_mapping):
-            if len(mapping) == 1:
-                std_role[mapping[0][0]] = (orig_idx, Fraction(1))
-            elif len(mapping) == 2:
-                std_role[mapping[0][0]] = (orig_idx, Fraction(1))   # a_i
-                std_role[mapping[1][0]] = (orig_idx, Fraction(-1))  # b_i
-
-        # ── Tính biểu diễn x_i theo biến tự do ──────────────────────────────
-        # Gộp các std-var cùng map về x_i: x_i = Σ sign_j * std_var_j
-        # std_var_j = rhs[ri] + Σ_fv coef[ri][fv]*fv  nếu j ∈ basis
-        #           = fv                               nếu j ∈ free_vars
-        #           = 0                               otherwise
-        n_orig = len(engine.problem.var_signs)
-        xi_expr: Dict[int, tuple] = {}   # orig_idx → (const, {fv: coef})
-
-        for orig_idx, mapping in enumerate(engine.variable_mapping):
-            const_v = Fraction(0)
-            fv_coefs: Dict[int, Fraction] = {fv: Fraction(0) for fv in free_vars}
-
+            c = Fraction(0)
+            t: Dict[int, Fraction] = {fv: Fraction(0) for fv in free_vars}
             for j, mc in mapping:
-                if j in set(basis_list):
+                if j in basis_set:
                     ri = basis_list.index(j)
-                    const_v += mc * snapshot.rhs[ri]
+                    c += mc * snapshot.rhs[ri]
                     for fv in free_vars:
-                        fv_coefs[fv] += mc * snapshot.rows[ri].get(fv, Fraction(0))
+                        t[fv] += mc * snapshot.rows[ri].get(fv, Fraction(0))
                 elif j in free_set:
-                    fv_coefs[j] = fv_coefs.get(j, Fraction(0)) + mc
-                # else: phi cơ sở không tự do → = 0, không đóng góp
+                    t[j] = t.get(j, Fraction(0)) + mc
+            xi_expr[orig_idx] = (c, t)
 
-            xi_expr[orig_idx] = (const_v, fv_coefs)
+        # Gộp coef của a_i/b_i → x_i: nếu t[jb] == -t[ja] thì coef_xi = t[ja]
+        def to_xi_terms(orig_idx):
+            c, t = xi_expr[orig_idx]
+            remaining: Dict[int, Fraction] = {fv: v for fv, v in t.items() if v != 0}
+            result_terms: list = []
+            for oi2, ja2, jb2, _ in split_free_pairs:
+                ca = remaining.get(ja2, Fraction(0))
+                cb = remaining.get(jb2, Fraction(0))
+                if ca == 0 and cb == 0:
+                    continue
+                if cb == -ca:
+                    if ca != 0:
+                        result_terms.append((ca, f"x{oi2+1}"))
+                    remaining.pop(ja2, None)
+                    remaining.pop(jb2, None)
+                else:
+                    if ca != 0:
+                        result_terms.append((ca, snapshot.all_names[ja2]))
+                        remaining.pop(ja2, None)
+                    if cb != 0:
+                        result_terms.append((cb, snapshot.all_names[jb2]))
+                        remaining.pop(jb2, None)
+            for fv, coef in remaining.items():
+                if coef != 0:
+                    result_terms.append((coef, snapshot.all_names[fv]))
+            return c, result_terms
 
         # ── In nghiệm tối ưu ─────────────────────────────────────────────────
         lines = ["  Nghiệm tối ưu là:"]
         for orig_idx in range(n_orig):
-            var_name = f"x{orig_idx+1}"
-            const_v, fv_coefs = xi_expr[orig_idx]
-            terms = [(fv_coefs[fv], snapshot.all_names[fv])
-                     for fv in free_vars if fv_coefs.get(fv, Fraction(0)) != 0]
-            lines.append(f"  - {var_name} = {self._linear_text(const_v, terms, mode)}")
+            c, terms = to_xi_terms(orig_idx)
+            lines.append(f"  - x{orig_idx+1} = {self._linear_text(c, terms, mode)}")
 
-        # ── Điều kiện kèm theo — tính thẳng từ từng hàng basis ─────────────
-        # Mỗi biến cơ sở b_i = rhs[ri] + Σ coef*fv phải ≥ 0
-        # Dùng snapshot.rows trực tiếp để bao gồm cả biến bù (w_j) trong basis.
-        if len(free_vars) == 1:
-            param_idx  = free_vars[0]
-            param_name = free_names[0]
+        cond_parts = []
+
+        def row_to_xi_terms(t_row):
+            """Gộp a_i/b_i → x_i trong hàng w_j."""
+            remaining2 = {fv: v for fv, v in t_row.items() if v != 0}
+            result2 = []
+            for oi2, ja2, jb2, _ in split_free_pairs:
+                ca = remaining2.get(ja2, Fraction(0))
+                cb = remaining2.get(jb2, Fraction(0))
+                if ca == 0 and cb == 0:
+                    continue
+                if cb == -ca:
+                    if ca != 0:
+                        result2.append((ca, f"x{oi2+1}"))
+                    remaining2.pop(ja2, None)
+                    remaining2.pop(jb2, None)
+                else:
+                    if ca != 0:
+                        result2.append((ca, snapshot.all_names[ja2]))
+                        remaining2.pop(ja2, None)
+                    if cb != 0:
+                        result2.append((cb, snapshot.all_names[jb2]))
+                        remaining2.pop(jb2, None)
+            for fv2, coef2 in remaining2.items():
+                if coef2 != 0:
+                    result2.append((coef2, snapshot.all_names[fv2]))
+            return result2
+
+        ai_set = {ja for _, ja, jb, _ in split_free_pairs}
+        bi_set = {jb for _, ja, jb, _ in split_free_pairs}
+
+        seen_rows: set = set()
+        for ri, b in enumerate(basis_list):
+            if b in art_set or (aux_idx is not None and b == aux_idx):
+                continue
+            if b in ai_set or b in bi_set or ri in seen_rows:
+                continue  # Bỏ qua hàng a_i, b_i — điều kiện nội bộ
+            seen_rows.add(ri)
+            t_row = {fv: snapshot.rows[ri].get(fv, Fraction(0)) for fv in free_vars}
+            has_dep = any(v != 0 for v in t_row.values())
+            if not has_dep:
+                continue
+            terms2 = row_to_xi_terms(t_row)
+            if terms2:
+                cond_parts.append(f"{self._linear_text(snapshot.rhs[ri], terms2, mode)} ≥ 0")
+
+        # Tham số phi cơ sở không phải a_i/b_i (ví dụ w_j tự do)
+        non_split_free = [fv for fv in free_vars if fv not in ai_set and fv not in bi_set]
+        for fv in non_split_free:
+            cond_parts.append(f"{snapshot.all_names[fv]} ≥ 0")
+
+        # Rút gọn khoảng nếu chỉ có 1 tham số không phải split
+        if len(non_split_free) == 1 and not split_free_pairs:
+            param_idx = non_split_free[0]
+            param_name = snapshot.all_names[param_idx]
             lowers, uppers = [Fraction(0)], []
             for ri, b in enumerate(basis_list):
-                if b in art_set:
+                if b in art_set or b in ai_set or b in bi_set:
                     continue
                 if aux_idx is not None and b == aux_idx:
                     continue
@@ -2535,37 +2793,21 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 else:
                     uppers.append(bound)
             lower = max(lowers)
+            cond_parts_rut = []
             if uppers:
                 upper = min(uppers)
-                cond_str = f"{fmt_num(lower, mode)} ≤ {param_name} ≤ {fmt_num(upper, mode)}"
+                cond_parts_rut.append(
+                    f"{fmt_num(lower, mode)} ≤ {param_name} ≤ {fmt_num(upper, mode)}")
             else:
-                cond_str = f"{param_name} ≥ {fmt_num(lower, mode)}"
-            lines.append(f"  với {cond_str}.")
-        else:
-            # Nhiều biến tự do: lấy điều kiện từ từng hàng basis có phụ thuộc fv
-            # rồi thêm fv ≥ 0. Dùng snapshot.rows để bao gồm cả biến bù w_j.
-            cond_parts = []
-            seen_rows = set()
-            for ri, b in enumerate(basis_list):
-                if b in art_set:
-                    continue
-                if aux_idx is not None and b == aux_idx:
-                    continue
-                has_free = any(snapshot.rows[ri].get(fv, Fraction(0)) != 0
-                               for fv in free_vars)
-                if not has_free or ri in seen_rows:
-                    continue
-                seen_rows.add(ri)
-                terms = [(snapshot.rows[ri].get(fv, Fraction(0)), snapshot.all_names[fv])
-                         for fv in free_vars
-                         if snapshot.rows[ri].get(fv, Fraction(0)) != 0]
-                expr = self._linear_text(snapshot.rhs[ri], terms, mode)
-                cond_parts.append(f"{expr} ≥ 0")
-            for fn in free_names:
-                cond_parts.append(f"{fn} ≥ 0")
+                cond_parts_rut.append(f"{param_name} ≥ {fmt_num(lower, mode)}")
+            # Thay cond_parts bằng phiên bản rút gọn
+            cond_parts = cond_parts_rut
+
+        if cond_parts:
             lines.append(f"  với {'; '.join(cond_parts)}.")
 
         return lines
+
 
     def _render_trace(self, title, trace):
         # In toàn bộ quá trình lặp của một pha (Dantzig hoặc Bland):
@@ -2693,7 +2935,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
                 self.output.insert(tk.END, "  👉 Hãy chuyển sang phương pháp Bland hoặc Hai pha để giải quyết.\n", "warn")
                 return
 
-        final=report.phase2_trace.final_snapshot if report.phase2_trace and report.phase2_trace.final_snapshot else report.dantzig.final_snapshot
+        final=self._get_final_snapshot(report)
 
         # Không giới nội
         if report.status in ("unbounded",):
@@ -2709,7 +2951,7 @@ class SimplexApp(Viz3DMixin, tk.Tk):
         obj_std=report.objective_std or Fraction(0)
         obj_orig=report.objective_orig or Fraction(0)
 
-        if report.multiple_optimal and final and report.multiple_optimal_vars:
+        if final and self._has_multiple_optimal(engine, final, report):
             for line in self._format_multiple_optimal_family(engine,final,report):
                 self.output.insert(tk.END,line+"\n","warn" if "vô số" in line else "note")
             self.output.insert(tk.END,"\nKẾT LUẬN\n","h2")
