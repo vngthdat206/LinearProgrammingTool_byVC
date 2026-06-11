@@ -3,10 +3,10 @@
 
 a = Analysis(
     ['main.py'],
-    pathex=[],
+    pathex=['.'],
     binaries=[],
     datas=[],
-    hiddenimports=[],
+    hiddenimports=['simplex_app', 'simplex_engine', 'models', 'utils', 'animator', 'html_exporter', 'viz3d', 'reference_original'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
